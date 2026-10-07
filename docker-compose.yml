@@ -1,0 +1,42 @@
+# Borrador sin probar: levantar con "docker compose up -d" y avisar si algo falla.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports: ["5432:5432"]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./scripts/postgres:/docker-entrypoint-initdb.d:ro
+
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+    volumes:
+      - mongo_data:/data/db
+
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+    ports: ["7474:7474", "7687:7687"]
+    volumes:
+      - neo4j_data:/data
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  cassandra:
+    image: cassandra:5.0
+    ports: ["9042:9042"]
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+volumes:
+  pg_data:
+  mongo_data:
+  neo4j_data:
+  cassandra_data:

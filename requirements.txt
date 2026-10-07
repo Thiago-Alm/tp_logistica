@@ -1,0 +1,8 @@
+psycopg[binary]
+pymongo
+neo4j
+redis
+cassandra-driver
+python-dotenv
+apscheduler
+pytest
