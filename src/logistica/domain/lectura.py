@@ -1,3 +1,4 @@
+"""Lectura de un sensor IoT. Vive en Cassandra (serie temporal)."""
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID

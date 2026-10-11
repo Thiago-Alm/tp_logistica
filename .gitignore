@@ -4,6 +4,7 @@ __pycache__/
 .env
 logs/*.log*
 .pytest_cache/
+.ruff_cache/
 *.egg-info/
 .idea/
 .vscode/

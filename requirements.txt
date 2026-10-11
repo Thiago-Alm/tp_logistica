@@ -1,8 +1,11 @@
-psycopg[binary]
-pymongo
-neo4j
-redis
-cassandra-driver
-python-dotenv
-apscheduler
-pytest
+psycopg[binary]==3.3.6
+pymongo==4.18.3
+neo4j==6.4.0
+redis==8.1.0
+cassandra-driver==3.30.1
+python-dotenv==1.2.4
+apscheduler==3.11.3
+pytest==9.1.1
+
+# Herramientas de desarrollo (no las necesita la app para correr)
+ruff==0.17.0

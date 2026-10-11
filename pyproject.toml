@@ -13,3 +13,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/F: errores y estilo PEP 8. I: orden de imports (isort).
+# UP: sintaxis moderna. B: bugs comunes. SIM: simplificaciones.
+select = ["E", "F", "I", "UP", "B", "SIM"]
