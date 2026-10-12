@@ -203,3 +203,156 @@ producir códigos de 11 caracteres** o va a fallar la construcción de todo
 `Contenedor`. Hay un test que lo verifica
 (`test_el_codigo_iso_debe_tener_once_caracteres`). Si el generador no puede
 cumplirlo, hay que relajar la validación antes, no después.
+
+---
+
+# Decisiones abiertas (propuestas, pendientes de acordar)
+
+Las siguientes surgen de contrastar el modelo de Neo4j y Redis (PR #1, Umbi)
+contra el modelo de PostgreSQL y el enunciado. Cada una tiene una **propuesta**
+y un **responsable**. Mientras digan "propuesta", no están cerradas.
+
+---
+
+## D9 — `Tramo` es un nodo en Neo4j, no una relación
+
+**Estado:** acordada (decidida por Umbi, se registra acá) · **Alcance:** Neo4j
+
+La tabla del documento del grupo decía "Tramo → Neo4j (relación entre
+ubicaciones)". El modelo implementado lo hace **nodo**, con `id` y `orden`.
+
+**Por qué el nodo es correcto:** en Neo4j una relación no puede ser extremo de
+otra relación. La consulta "historial de movimientos de un contenedor" requiere
+`(:Contenedor)-[:RECORRE]->(:Tramo)`, y eso obliga a que `Tramo` sea un nodo.
+
+**Consecuencia:** la entidad `Ruta` del documento del grupo queda **subsumida en
+los tramos** y no se modela aparte. El recorrido de un envío se reconstruye
+siguiendo `(:Envio)-[:TIENE_TRAMO]->(:Tramo)`.
+
+**Acción:** corregir la tabla del documento del grupo, que hoy dice lo contrario.
+
+---
+
+## D10 — `orden` se agrega como columna en PostgreSQL
+
+**Estado:** propuesta · **Responsables:** Thiago y Fran · **Urgente: bloquea el DDL**
+
+El nodo `Tramo` de Neo4j tiene una propiedad `orden` que no existe en la tabla
+`tramo` de PostgreSQL. El Outbox no puede propagar un campo inexistente.
+
+**Propuesta:** agregar `orden` (entero) a la tabla `tramo`, en lugar de derivarlo
+ordenando por `fecha_salida`.
+
+**Por qué:**
+
+1. Permite declarar la restricción `UNIQUE (envio_id, orden)` en Postgres. Esa es
+   exactamente la regla de integridad que el modelo de Neo4j ya enuncia ("el
+   orden de los tramos no se repetirá dentro del mismo envío"), y sin la columna
+   no es declarable: habría que validarla a mano en la aplicación.
+2. El recorrido es una secuencia planificada que existe **antes** de que las
+   fechas sean ciertas. Derivar el orden de `fecha_salida` ata el orden a un dato
+   que puede ser nulo o estimado al crear el envío.
+3. Cuesta una columna de tipo entero.
+
+**Consecuencia:** es un supuesto nuevo a documentar (el enunciado no lo pide).
+
+---
+
+## D11 — El operador llega al envío a través del vehículo
+
+**Estado:** propuesta · **Responsables:** Thiago y Umbi
+
+El modelo de Neo4j propone `(:Operador)-[:GESTIONA]->(:Envio)` y
+`(:Proveedor)-[:PARTICIPA_EN]->(:Envio)`. **Ninguna de las dos es derivable de
+PostgreSQL:** no existe campo que una un operador con un envío, ni nada que una
+un proveedor con un envío. El worker de sincronización no tendría de dónde
+leerlas.
+
+**Propuesta:**
+
+1. Agregar `(:Operador)-[:OPERA]->(:Vehiculo)`, que **sí** es derivable
+   (`vehiculo.operador_id`).
+2. **No materializar `GESTIONA`.** El requisito "red de relaciones entre
+   clientes, operadores y envíos" se resuelve recorriendo el camino real:
+   `(:Envio)-[:TIENE_TRAMO]->(:Tramo)-[:UTILIZA]->(:Vehiculo)<-[:OPERA]-(:Operador)`.
+   Son tres saltos, triviales en Cypher. Si más adelante la consulta resultara
+   lenta, se materializa y se documenta el porqué.
+3. **Sacar `Proveedor` del grafo.** El enunciado pide CRUD de proveedores (se
+   cumple en PostgreSQL) pero nunca los relaciona con envíos: la red que pide es
+   "clientes, operadores y envíos". Sin dato que la respalde ni requisito que la
+   pida, esa relación es complejidad gratuita.
+
+**Nota de defensa:** este camino de tres saltos es la mejor justificación
+concreta que tenemos para Neo4j — en SQL es un join de cuatro tablas que empeora
+si se quiere profundidad variable.
+
+---
+
+## D12 — Los incidentes se propagan a Neo4j
+
+**Estado:** propuesta · **Responsables:** Thiago y Mati
+
+El enunciado pide "ranking de rutas con mayor cantidad de incidentes". Los
+incidentes viven en MongoDB con un `envio_id`; el modelo de Neo4j no los incluye.
+Hoy ese requisito **no tiene implementación posible**.
+
+**Propuesta:** el Outbox propaga cada incidente a Neo4j como
+`(:Incidente {id, tipo, severidad})-[:AFECTA]->(:Envio)`, y el ranking se resuelve
+en Cypher agrupando por el par origen–destino del envío.
+
+**Por qué no resolverlo en Mongo** (denormalizando origen y destino dentro del
+documento del incidente, que sería más simple): porque debilita la justificación
+del grafo. Si la consulta más "de grafo" del enunciado se resuelve con una
+agregación de Mongo, en la defensa la pregunta obvia es para qué está Neo4j. La
+tabla del grupo ya asignaba `Incidente` a Neo4j por este motivo.
+
+**Imprecisión aceptada:** el enunciado liga el incidente al **envío**, no al
+tramo, así que el ranking agrupa por origen–destino del envío y no por tramo
+individual. Ganar precisión exigiría agregar `tramo_id` al incidente, que es un
+supuesto más. Se deja documentado y no se agrega.
+
+---
+
+## D13 — El heartbeat de sensores usa un sorted set
+
+**Estado:** propuesta · **Responsable:** Umbi
+
+El modelo de Redis usa una clave String por sensor
+(`sensor:actividad:<sensor_id>`) con TTL. El plan original del grupo era un
+**sorted set**.
+
+**Propuesta:** volver al sorted set
+(`ZADD sensores:heartbeat <timestamp> <sensor_id>`).
+
+**Por qué:**
+
+1. El proceso periódico "detección de sensores inactivos" pasa a ser **un solo
+   comando**: `ZRANGEBYSCORE sensores:heartbeat -inf <corte>`. Con claves
+   sueltas hay que traer todos los sensores de PostgreSQL y consultar Redis una
+   vez por sensor.
+2. Con TTL, al vencer la clave **se pierde cuándo reportó por última vez**: solo
+   queda "no hay clave". Con el sorted set el score siempre está, y se puede
+   informar "inactivo desde tal hora", que es lo que un operador necesita.
+3. La ambigüedad que el propio documento de Redis señala con cuidado (clave
+   ausente = nunca reportó, o = venció) desaparece: un sensor que nunca reportó
+   simplemente no está en el conjunto.
+
+---
+
+## D14 — El modelo de Redis cubre también locks y caché
+
+**Estado:** propuesta · **Responsable:** Umbi, con Thiago para los locks
+
+El plan del grupo asignaba a Redis cuatro usos; el modelo documenta dos.
+
+**Faltan:**
+
+1. **Locks `SET NX EX` para los procesos periódicos.** Sin ellos, dos ejecuciones
+   simultáneas del job de facturación generan facturas duplicadas. Afecta a los
+   cuatro procesos periódicos del enunciado.
+2. **Caché de reportes.** La tabla del grupo dice "Reporte → Redis (caché)".
+
+**Pendiente también para el entregable 3** ("modelos físicos de todas las
+bases"): el enunciado pide índices, restricciones y particionamiento por motor.
+Hoy el modelo de Neo4j enuncia la restricción de unicidad de `id` pero no escribe
+el Cypher, y el de Redis no dice que no hay particionamiento ni por qué.
