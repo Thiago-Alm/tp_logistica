@@ -433,3 +433,31 @@ reporte o clave de búsqueda entre tablas.
 
 **Le cambia el trabajo a:** Fran (el `CHECK` o el tipo `ENUM` de la columna, en
 `tramo` y en `tarifa`).
+
+---
+
+## D18 — Los repositorios no exponen `cambiar_estado`
+
+**Estado:** acordada · **Fecha:** 12/10/2026 · **Alcance:** todos los repositorios
+
+Ninguna interfaz de repositorio tiene un metodo del tipo
+`cambiar_estado(id, estado)`. La escritura se hace con dos metodos: `guardar`
+para el alta y `actualizar` para persistir una entidad ya modificada.
+
+**Por qué:** un metodo que recibe un `id` suelto y un estado **saltea el
+dominio**. Permite escribir cualquier estado directamente en la base sin pasar
+por las reglas de la entidad: con `cambiar_estado(id, EstadoEnvio.CREADO)` se
+puede devolver a `CREADO` un envio ya `ENTREGADO`, que es exactamente lo que D4
+prohíbe. El flujo correcto es: el servicio obtiene la entidad, la modifica a
+través de sus propios métodos (`Envio.pasar_a()`), y la guarda entera.
+
+**Consecuencia:** la regla de negocio vive en un solo lugar (el dominio) y el
+repositorio queda reducido a lo suyo, que es leer y escribir.
+
+**Le cambia el trabajo a:** todos los que escriban un repositorio. La convención
+es `guardar` / `actualizar` / `obtener` / `listar_*`.
+
+**Pendiente relacionado:** `Contenedor` todavía no tiene el equivalente de
+`Envio.pasar_a()`. Hoy el servicio le asigna el estado directamente después de
+consultar `puede_asignarse()`. Si aparecen más reglas sobre el ciclo de vida del
+contenedor, conviene darle su propio método de cambio de estado.

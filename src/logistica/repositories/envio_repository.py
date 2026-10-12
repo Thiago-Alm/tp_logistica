@@ -30,10 +30,10 @@ class EnvioRepository(ABC):
     def actualizar(self, envio: Envio) -> None:
         """Persiste los cambios de un envio existente.
 
-        No hay un metodo `cambiar_estado`: el cambio de estado lo hace el
-        dominio con `Envio.pasar_a()`, que valida la transicion, y despues el
-        servicio guarda el envio entero con este metodo. Asi la regla de
-        transiciones vive en un solo lugar (D4).
+        No hay un metodo `cambiar_estado(id, estado)` (D18): el cambio de
+        estado lo hace el dominio con `Envio.pasar_a()`, que valida la
+        transicion, y despues el servicio guarda el envio entero con este
+        metodo. Asi la regla de transiciones vive en un solo lugar (D4).
         """
         ...
 
