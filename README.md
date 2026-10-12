@@ -8,10 +8,21 @@ Aplicacion de consola en Python con 5 motores: PostgreSQL, MongoDB, Neo4j, Redis
 2. Crear el entorno: `python -m venv .venv` y activarlo (Windows: `.venv\Scripts\activate`).
 3. Instalar: `pip install -r requirements.txt` y luego `pip install -e .`
 4. Levantar las bases: `docker compose up -d`
-5. Correr los tests: `pytest`
+5. Verificar que las 5 bases respondan: `python scripts/chequear_conexiones.py`
+6. Correr los tests: `pytest`
+
+### Si el chequeo falla
+Revisar `docker compose ps`. Ojo con un detalle que ya nos paso: un contenedor
+puede figurar como "Up" y aun asi no ser el que recibe las conexiones, si hay
+otro servicio de la maquina ocupando el mismo puerto (por ejemplo, un MongoDB o
+un PostgreSQL instalado de antes en Windows). Por eso el chequeo imprime la
+version: si no coincide con la del `docker-compose.yml`, le estas hablando a
+otra base. La solucion es detener el servicio nativo, o mover el puerto del
+contenedor y actualizar el `.env`.
 
 ## Estructura
-- `scripts/`: scripts de creacion de cada base (uno por motor).
+- `scripts/`: scripts de creacion de cada base (uno por motor) y utilidades.
+- `docs/decisiones.md`: registro de decisiones de diseno. **Leerlo antes de escribir codigo o DDL.**
 - `src/logistica/domain/`: entidades.
 - `src/logistica/repositories/`: interfaces (clases abstractas), sin codigo de base de datos.
 - `src/logistica/infrastructure/`: implementaciones de cada interfaz, una carpeta por motor.

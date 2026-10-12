@@ -16,7 +16,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 # E/F: errores y estilo PEP 8. I: orden de imports (isort).
