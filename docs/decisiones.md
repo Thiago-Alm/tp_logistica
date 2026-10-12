@@ -356,3 +356,80 @@ El plan del grupo asignaba a Redis cuatro usos; el modelo documenta dos.
 bases"): el enunciado pide índices, restricciones y particionamiento por motor.
 Hoy el modelo de Neo4j enuncia la restricción de unicidad de `id` pero no escribe
 el Cypher, y el de Redis no dice que no hay particionamiento ni por qué.
+
+---
+
+## D15 — El dinero se modela con `Decimal`, no con `float`
+
+**Estado:** acordada · **Fecha:** 12/10/2026 · **Alcance:** todo el dominio y el DDL
+
+Todo campo monetario (`Tramo.costo`, `Tarifa.monto`, `Factura.importe_total`,
+`Pago.monto`, `CuentaCorriente.saldo`, `MovimientoCuenta.monto`) se modela con
+`decimal.Decimal` en Python y con `NUMERIC` en PostgreSQL. Nunca `float` ni
+`REAL`/`DOUBLE PRECISION`.
+
+**Por qué:** `float` es binario y no representa exactamente los decimales. En
+Python, `0.1 + 0.2` da `0.30000000000000004`. Sumando cientos de tramos, el
+importe de una factura se desvía de a centavos respecto del total real, y el
+cierre mensual de cuentas corrientes no cierra. El enunciado pide "controles de
+integridad", y en facturación eso empieza por el tipo de dato.
+
+**Le cambia el trabajo a:** Fran (columnas `NUMERIC(12,2)` en `tramo`, `tarifa`,
+`factura`, `pago`, `cuenta_corriente` y `movimiento_cuenta`).
+
+---
+
+## D16 — `Tramo` no tiene estado; `vehiculo_id` es obligatorio
+
+**Estado:** acordada · **Fecha:** 12/10/2026 · **Alcance:** `domain/tramo.py`
+
+**Tramo no lleva un campo `estado`.** Se considera completado cuando tiene
+`fecha_llegada_real` (método `esta_completado()`).
+
+**Por qué:** `Envio` necesita estado porque el enunciado se lo lista y porque hay
+un reporte que agrupa por él ("Envíos por estado"). Tramo no tiene "Estado" en el
+enunciado y ningún reporte agrupa por él: agregarlo sería un supuesto sin
+requisito detrás. La presencia o ausencia de `fecha_llegada_real` ya responde si
+el tramo se ejecutó.
+
+**Consecuencia — asimetría con `Envio`, a tener presente en la defensa:** en
+`Envio` la regla es bicondicional (hay `fecha_llegada_real` **si y solo si** el
+estado es `ENTREGADO`), porque hay dos campos que pueden contradecirse. En
+`Tramo` no hay estado, así que solo se exige coherencia temporal: si la fecha
+está, no puede ser anterior a `fecha_salida`.
+
+**`vehiculo_id` es obligatorio (`UUID`, no `UUID | None`).**
+
+**Por qué:** es una **simplificación asumida**. En la realidad se planifica la
+ruta y después se asignan los vehículos, con lo cual el campo sería nulo entre
+una cosa y la otra. Se asume que un tramo se crea ya con su vehículo asignado,
+porque el enunciado no describe ninguna etapa de planificación previa y porque
+permitir nulos obliga a manejar ese caso en cada consulta y en cada propagación
+del Outbox. Con el campo obligatorio, la FK es `NOT NULL` y la relación
+`(:Tramo)-[:UTILIZA]->(:Vehiculo)` siempre existe en Neo4j.
+
+---
+
+## D17 — `medio_transporte` es un enum de tres valores
+
+**Estado:** acordada · **Fecha:** 12/10/2026 · **Alcance:** `domain/tramo.py`, `tarifa`
+
+`MedioTransporte` toma `TERRESTRE`, `MARITIMO` o `AEREO`, por el objetivo del
+enunciado ("envíos terrestres, marítimos y aéreos"). No es texto libre.
+
+**Por qué no texto libre:**
+
+1. El reporte obligatorio "Costos por tipo de transporte" es un
+   `GROUP BY medio_transporte`. Con texto libre, `"Maritimo"`, `"MARITIMO"` y
+   `"maritimo "` son tres grupos distintos: el reporte no sale lento, sale **mal**,
+   y en silencio.
+2. `Tarifa.medio_transporte` tiene que coincidir con `Tramo.medio_transporte`
+   para que la facturación automática encuentre la tarifa. Con texto libre la
+   búsqueda no encuentra nada y la factura sale en cero.
+
+**Regla general que se desprende:** un campo puede ser texto libre si es
+descriptivo (`Incidente.descripcion`), pero nunca si es eje de agrupación de un
+reporte o clave de búsqueda entre tablas.
+
+**Le cambia el trabajo a:** Fran (el `CHECK` o el tipo `ENUM` de la columna, en
+`tramo` y en `tarifa`).
