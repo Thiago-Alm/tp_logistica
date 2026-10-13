@@ -3,74 +3,90 @@
 -- Base de datos: PostgreSQL 16
 -- Plataforma de Logística Internacional y Monitoreo IoT
 --
--- Datos semilla (seed) deterministas y realistas para pruebas y desarrollo.
--- Utiliza UUIDs válidos con prefijo hexadecimal por entidad:
---   1... usuario      | 2... cliente    | 3... operador    | 4... proveedor
---   5... ubicacion    | 6... vehiculo   | 7... contenedor  | 8... sensor
---   9... tarifa       | a... envio      | b... tramo       | c... factura
---   d... pago         | e... cuenta_cor | f... mov_cuenta  | aa.. outbox
+-- Autor original: Fran. Ajustes de Thiago por los cambios de esquema.
+--
+-- Datos semilla deterministas. PostgreSQL es el DUEÑO de estas entidades, así
+-- que estos UUID son los que deben usar los datos semilla de MongoDB,
+-- Cassandra, Neo4j y Redis (D24).
+--
+-- Prefijos por entidad:
+--   0... rol          | 1... usuario    | 2... cliente     | 3... operador
+--   4... proveedor    | 5... ubicacion  | 6... vehiculo    | 7... contenedor
+--   8... sensor       | 9... tarifa     | a... envio       | b... tramo
+--   c... factura      | d... pago       | e... cuenta_cte  | f... mov_cuenta
+--   aa.. outbox
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- 1. USUARIOS (prefijo 1)
+-- 1. ROLES (prefijo 0)
 -- ----------------------------------------------------------------------------
-INSERT INTO usuario (id, nombre, email, password_hash, rol, activo, fecha_creacion) VALUES
-    ('10000000-0000-0000-0000-000000000001', 'Admin Sistema', 'admin@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r4dm1nS1st3m4', 'ADMINISTRADOR', TRUE, '2026-01-01 08:00:00+00'),
-    ('10000000-0000-0000-0000-000000000002', 'Carlos Operaciones', 'carlos.ops@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r0p3r4d0rC4rl0s', 'OPERADOR', TRUE, '2026-01-05 09:30:00+00'),
-    ('10000000-0000-0000-0000-000000000003', 'Lucia Auditora', 'lucia.audit@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r4ud1t0rLuc14', 'AUDITOR', TRUE, '2026-01-10 10:15:00+00'),
-    ('10000000-0000-0000-0000-000000000004', 'Mariana Cliente', 'mariana@agroglobal.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0rCl13nt3M4r14n4', 'CLIENTE', TRUE, '2026-02-01 11:00:00+00');
+INSERT INTO rol (id, descripcion, nivel_permisos) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'ADMINISTRADOR', 100),
+    ('00000000-0000-0000-0000-000000000002', 'OPERADOR', 60),
+    ('00000000-0000-0000-0000-000000000003', 'AUDITOR', 30),
+    ('00000000-0000-0000-0000-000000000004', 'CLIENTE', 10);
 
 -- ----------------------------------------------------------------------------
--- 2. CLIENTES (prefijo 2)
+-- 2. CLIENTES (prefijo 2) - van antes que usuario por la FK
 -- ----------------------------------------------------------------------------
-INSERT INTO cliente (id, cuit, razon_social, email, telefono, direccion, activo, fecha_creacion) VALUES
-    ('20000000-0000-0000-0000-000000000001', '30-71122334-9', 'AgroGlobal Exportaciones SA', 'contacto@agroglobal.com', '+54 11 4321-8899', 'Av. Leandro N. Alem 1050, CABA, Argentina', TRUE, '2026-01-10 09:00:00+00'),
-    ('20000000-0000-0000-0000-000000000002', '30-82233445-8', 'TecnoSur Componentes SRL', 'logistica@tecnosur.com.ar', '+54 341 555-1234', 'Parque Industrial Alvear, Santa Fe, Argentina', TRUE, '2026-01-12 10:00:00+00'),
-    ('20000000-0000-0000-0000-000000000003', '30-93344556-7', 'Frutas del Valle Patagonia SA', 'embarques@frutasdelvalle.com', '+54 299 444-5678', 'Ruta 22 Km 1210, Cipolletti, Río Negro, Argentina', TRUE, '2026-01-15 11:30:00+00'),
-    ('20000000-0000-0000-0000-000000000004', '30-64455667-6', 'Química Andina Industrial SA', 'abastecimiento@quimicaandina.com', '+54 261 420-9988', 'Zona Industrial Rodríguez Peña, Mendoza, Argentina', TRUE, '2026-02-01 08:45:00+00');
+INSERT INTO cliente (id, cuit, razon_social, email, telefono, direccion, pais, estado, fecha_creacion) VALUES
+    ('20000000-0000-0000-0000-000000000001', '30-71122334-9', 'AgroGlobal Exportaciones SA', 'contacto@agroglobal.com', '+54 11 4321-8899', 'Av. Leandro N. Alem 1050, CABA', 'Argentina', 'ACTIVO', '2026-01-10 09:00:00+00'),
+    ('20000000-0000-0000-0000-000000000002', '30-82233445-8', 'TecnoSur Componentes SRL', 'logistica@tecnosur.com.ar', '+54 341 555-1234', 'Parque Industrial Alvear, Santa Fe', 'Argentina', 'ACTIVO', '2026-01-12 10:00:00+00'),
+    ('20000000-0000-0000-0000-000000000003', '30-93344556-7', 'Frutas del Valle Patagonia SA', 'embarques@frutasdelvalle.com', '+54 299 444-5678', 'Ruta 22 Km 1210, Cipolletti, Río Negro', 'Argentina', 'ACTIVO', '2026-01-15 11:30:00+00'),
+    ('20000000-0000-0000-0000-000000000004', '30-64455667-6', 'Química Andina Industrial SA', 'abastecimiento@quimicaandina.com', '+54 261 420-9988', 'Zona Industrial Rodríguez Peña, Mendoza', 'Argentina', 'ACTIVO', '2026-02-01 08:45:00+00');
 
 -- ----------------------------------------------------------------------------
--- 3. OPERADORES LOGÍSTICOS (prefijo 3 - D11)
+-- 3. USUARIOS (prefijo 1)
+-- Los tres primeros son internos: cliente_id NULL. El cuarto es de un cliente.
 -- ----------------------------------------------------------------------------
-INSERT INTO operador (id, cuit, nombre, email, telefono, activo, fecha_creacion) VALUES
-    ('30000000-0000-0000-0000-000000000001', '30-60111222-1', 'Naviera Río de la Plata SA', 'operaciones@navierarioplata.com', '+54 11 5000-1111', TRUE, '2026-01-02 08:00:00+00'),
-    ('30000000-0000-0000-0000-000000000002', '30-60222333-2', 'TransContinental Carga Terrestre SRL', 'despacho@transcontinental.com', '+54 11 5000-2222', TRUE, '2026-01-02 08:30:00+00'),
-    ('30000000-0000-0000-0000-000000000003', '30-60333444-3', 'AeroCargas Internacional SA', 'vuelos@aerocargasinter.com', '+54 11 5000-3333', TRUE, '2026-01-02 09:00:00+00');
+INSERT INTO usuario (id, cliente_id, rol_id, nombre, apellido, email, password_hash, estado, fecha_registro) VALUES
+    ('10000000-0000-0000-0000-000000000001', NULL, '00000000-0000-0000-0000-000000000001', 'Admin', 'Sistema', 'admin@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r4dm1nS1st3m4', 'ACTIVO', '2026-01-01 08:00:00+00'),
+    ('10000000-0000-0000-0000-000000000002', NULL, '00000000-0000-0000-0000-000000000002', 'Carlos', 'Operaciones', 'carlos.ops@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r0p3r4d0rC4rl0s', 'ACTIVO', '2026-01-05 09:30:00+00'),
+    ('10000000-0000-0000-0000-000000000003', NULL, '00000000-0000-0000-0000-000000000003', 'Lucia', 'Auditora', 'lucia.audit@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r4ud1t0rLuc14', 'ACTIVO', '2026-01-10 10:15:00+00'),
+    ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'Mariana', 'Fernandez', 'mariana@agroglobal.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0rCl13nt3M4r14n4', 'ACTIVO', '2026-02-01 11:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 4. PROVEEDORES (prefijo 4 - D11)
+-- 4. OPERADORES LOGÍSTICOS (prefijo 3 - D11)
 -- ----------------------------------------------------------------------------
-INSERT INTO proveedor (id, cuit, razon_social, tipo_servicio, email, telefono, activo, fecha_creacion) VALUES
-    ('40000000-0000-0000-0000-000000000001', '30-50111999-5', 'Servicios Portuarios Integrados SA', 'ESTIBA_Y_AMARRE', 'info@puertosintegrados.com', '+54 11 4111-2233', TRUE, '2026-01-03 08:00:00+00'),
-    ('40000000-0000-0000-0000-000000000002', '30-50222888-4', 'Combustibles del Conosur SRL', 'BUNKERING_Y_COMBUSTIBLE', 'ventas@combustiblesconosur.com', '+54 11 4222-3344', TRUE, '2026-01-03 08:30:00+00'),
-    ('40000000-0000-0000-0000-000000000003', '30-50333777-3', 'Mantenimiento y Reparación de Contenedores SA', 'INSPECCION_Y_MANTENIMIENTO', 'taller@mantenimientocont.com', '+54 11 4333-4455', TRUE, '2026-01-03 09:00:00+00');
+INSERT INTO operador (id, cuit, razon_social, email, telefono, pais, estado, fecha_creacion) VALUES
+    ('30000000-0000-0000-0000-000000000001', '30-60111222-1', 'Naviera Río de la Plata SA', 'operaciones@navierarioplata.com', '+54 11 5000-1111', 'Argentina', 'ACTIVO', '2026-01-02 08:00:00+00'),
+    ('30000000-0000-0000-0000-000000000002', '30-60222333-2', 'TransContinental Carga Terrestre SRL', 'despacho@transcontinental.com', '+54 11 5000-2222', 'Argentina', 'ACTIVO', '2026-01-02 08:30:00+00'),
+    ('30000000-0000-0000-0000-000000000003', '30-60333444-3', 'AeroCargas Internacional SA', 'vuelos@aerocargasinter.com', '+54 11 5000-3333', 'Argentina', 'ACTIVO', '2026-01-02 09:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 5. UBICACIONES (prefijo 5)
+-- 5. PROVEEDORES (prefijo 4)
 -- ----------------------------------------------------------------------------
-INSERT INTO ubicacion (id, nombre, tipo, codigo_locode, ciudad, pais, latitud, longitud, activo) VALUES
-    ('50000000-0000-0000-0000-000000000001', 'Puerto de Buenos Aires (Terminal 4)', 'PUERTO', 'ARBUE', 'Buenos Aires', 'Argentina', -34.582800, -58.367200, TRUE),
-    ('50000000-0000-0000-0000-000000000002', 'Centro Logístico Zárate', 'CENTRO_DISTRIBUCION', 'ARZAE', 'Zárate', 'Argentina', -34.098700, -59.028600, TRUE),
-    ('50000000-0000-0000-0000-000000000003', 'Puerto de Santos', 'PUERTO', 'BRSSZ', 'Santos', 'Brasil', -23.961900, -46.304200, TRUE),
-    ('50000000-0000-0000-0000-000000000004', 'Puerto de Rotterdam (Maasvlakte)', 'PUERTO', 'NLRTM', 'Rotterdam', 'Holanda', 51.956000, 4.028000, TRUE),
-    ('50000000-0000-0000-0000-000000000005', 'Puerto de Shanghai (Yangshan)', 'PUERTO', 'CNSHA', 'Shanghai', 'China', 30.628000, 122.064000, TRUE),
-    ('50000000-0000-0000-0000-000000000006', 'Aeropuerto Internacional Ezeiza (Cargas)', 'AEROPUERTO', 'AREZE', 'Ezeiza', 'Argentina', -34.822200, -58.535800, TRUE),
-    ('50000000-0000-0000-0000-000000000007', 'Aeropuerto Schiphol Cargas', 'AEROPUERTO', 'AMS', 'Ámsterdam', 'Holanda', 52.310500, 4.768300, TRUE),
-    ('50000000-0000-0000-0000-000000000008', 'Depósito Fiscal Mendoza', 'DEPOSITO_FISCAL', 'ARMDZ', 'Mendoza', 'Argentina', -32.889500, -68.845800, TRUE);
+INSERT INTO proveedor (id, cuit, razon_social, tipo_servicio, email, telefono, pais, estado, fecha_creacion) VALUES
+    ('40000000-0000-0000-0000-000000000001', '30-50111999-5', 'Servicios Portuarios Integrados SA', 'ESTIBA_Y_AMARRE', 'info@puertosintegrados.com', '+54 11 4111-2233', 'Argentina', 'ACTIVO', '2026-01-03 08:00:00+00'),
+    ('40000000-0000-0000-0000-000000000002', '30-50222888-4', 'Combustibles del Conosur SRL', 'BUNKERING_Y_COMBUSTIBLE', 'ventas@combustiblesconosur.com', '+54 11 4222-3344', 'Argentina', 'ACTIVO', '2026-01-03 08:30:00+00'),
+    ('40000000-0000-0000-0000-000000000003', '30-50333777-3', 'Mantenimiento y Reparación de Contenedores SA', 'INSPECCION_Y_MANTENIMIENTO', 'taller@mantenimientocont.com', '+54 11 4333-4455', 'Argentina', 'ACTIVO', '2026-01-03 09:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 6. VEHÍCULOS (prefijo 6 - D11, D16, D17)
+-- 6. UBICACIONES (prefijo 5)
 -- ----------------------------------------------------------------------------
-INSERT INTO vehiculo (id, operador_id, patente, tipo, medio_transporte, capacidad_peso_kg, capacidad_volumen_m3, activo) VALUES
-    ('60000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'IMO-9456781', 'BUQUE', 'MARITIMO', 55000000.00, 75000.00, TRUE),
-    ('60000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'IMO-9821345', 'BUQUE', 'MARITIMO', 62000000.00, 82000.00, TRUE),
-    ('60000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000002', 'AF-123-CD', 'CAMION', 'TERRESTRE', 28000.00, 85.00, TRUE),
-    ('60000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'AF-456-EF', 'CAMION', 'TERRESTRE', 32000.00, 92.00, TRUE),
-    ('60000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000003', 'LV-B777-FR', 'AVION', 'AEREO', 102000.00, 650.00, TRUE),
-    ('60000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000003', 'LV-B747-CRG', 'AVION', 'AEREO', 128000.00, 780.00, TRUE);
+INSERT INTO ubicacion (id, nombre, tipo, codigo_locode, ciudad, pais, latitud, longitud, estado) VALUES
+    ('50000000-0000-0000-0000-000000000001', 'Puerto de Buenos Aires (Terminal 4)', 'PUERTO', 'ARBUE', 'Buenos Aires', 'Argentina', -34.582800, -58.367200, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000002', 'Centro Logístico Zárate', 'CENTRO_DISTRIBUCION', 'ARZAE', 'Zárate', 'Argentina', -34.098700, -59.028600, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000003', 'Puerto de Santos', 'PUERTO', 'BRSSZ', 'Santos', 'Brasil', -23.961900, -46.304200, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000004', 'Puerto de Rotterdam (Maasvlakte)', 'PUERTO', 'NLRTM', 'Rotterdam', 'Holanda', 51.956000, 4.028000, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000005', 'Puerto de Shanghai (Yangshan)', 'PUERTO', 'CNSHA', 'Shanghai', 'China', 30.628000, 122.064000, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000006', 'Aeropuerto Internacional Ezeiza (Cargas)', 'AEROPUERTO', 'AREZE', 'Ezeiza', 'Argentina', -34.822200, -58.535800, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000007', 'Aeropuerto Schiphol Cargas', 'AEROPUERTO', 'AMS', 'Ámsterdam', 'Holanda', 52.310500, 4.768300, 'ACTIVO'),
+    ('50000000-0000-0000-0000-000000000008', 'Depósito Fiscal Mendoza', 'DEPOSITO_FISCAL', 'ARMDZ', 'Mendoza', 'Argentina', -32.889500, -68.845800, 'ACTIVO');
 
 -- ----------------------------------------------------------------------------
--- 7. CONTENEDORES (prefijo 7 - D1, D8: Códigos ISO 6346 de 11 caracteres exactos)
+-- 7. VEHÍCULOS (prefijo 6 - D11, D16, D17)
+-- ----------------------------------------------------------------------------
+INSERT INTO vehiculo (id, operador_id, identificacion, tipo, medio_transporte, capacidad_peso_kg, capacidad_volumen_m3, estado) VALUES
+    ('60000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'IMO-9456781', 'BUQUE', 'MARITIMO', 55000000.00, 75000.00, 'ACTIVO'),
+    ('60000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'IMO-9821345', 'BUQUE', 'MARITIMO', 62000000.00, 82000.00, 'ACTIVO'),
+    ('60000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000002', 'AF-123-CD', 'CAMION', 'TERRESTRE', 28000.00, 85.00, 'ACTIVO'),
+    ('60000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'AF-456-EF', 'CAMION', 'TERRESTRE', 32000.00, 92.00, 'ACTIVO'),
+    ('60000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000003', 'LV-B777-FR', 'AVION', 'AEREO', 102000.00, 650.00, 'ACTIVO'),
+    ('60000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000003', 'LV-B747-CRG', 'AVION', 'AEREO', 128000.00, 780.00, 'EN_MANTENIMIENTO');
+
+-- ----------------------------------------------------------------------------
+-- 8. CONTENEDORES (prefijo 7 - D1, D8: códigos ISO 6346 de 11 caracteres)
 -- ----------------------------------------------------------------------------
 INSERT INTO contenedor (id, codigo_iso, tipo, capacidad, estado, fecha_alta) VALUES
     ('70000000-0000-0000-0000-000000000001', 'MSKU1234567', 'DRY_40', 67.70, 'EN_TRANSITO', '2026-01-05 10:00:00+00'),
@@ -83,7 +99,9 @@ INSERT INTO contenedor (id, codigo_iso, tipo, capacidad, estado, fecha_alta) VAL
     ('70000000-0000-0000-0000-000000000008', 'CMAU1020304', 'DRY_20', 33.20, 'BAJA', '2025-10-01 08:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 8. SENSORES IoT (prefijo 8)
+-- 9. SENSORES IoT (prefijo 8)
+-- El sensor 005 no tiene contenedor y está INACTIVO: sirve para probar la
+-- detección de sensores inactivos (D13).
 -- ----------------------------------------------------------------------------
 INSERT INTO sensor (id, contenedor_id, numero_serie, modelo, tipo, intervalo_reporte_segundos, estado, fecha_instalacion) VALUES
     ('80000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', 'SN-IOT-2026-001', 'Carrier Transicold DataCOLD', 'MULTISENSOR', 60, 'ACTIVO', '2026-01-06 09:00:00+00'),
@@ -91,21 +109,22 @@ INSERT INTO sensor (id, contenedor_id, numero_serie, modelo, tipo, intervalo_rep
     ('80000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000002', 'SN-IOT-2026-003', 'Sensitech TempTale Ultra', 'HUMEDAD', 60, 'ACTIVO', '2026-01-09 10:30:00+00'),
     ('80000000-0000-0000-0000-000000000004', '70000000-0000-0000-0000-000000000006', 'SN-IOT-2026-004', 'CalAmp LMU-3030 GPS/Shock', 'GPS', 120, 'ACTIVO', '2026-01-19 11:00:00+00'),
     ('80000000-0000-0000-0000-000000000005', NULL, 'SN-IOT-2026-005', 'Bosch Connected Sensor TDL', 'MULTISENSOR', 60, 'INACTIVO', '2026-01-20 14:00:00+00'),
-    ('80000000-0000-0000-0000-000000000006', '70000000-0000-0000-0000-000000000007', 'SN-IOT-2026-006', 'Envirotainer CryoAlert', 'VIBRACION', 45, 'MANTENIMIENTO', '2026-01-21 08:00:00+00');
+    ('80000000-0000-0000-0000-000000000006', '70000000-0000-0000-0000-000000000007', 'SN-IOT-2026-006', 'Envirotainer CryoAlert', 'VIBRACION', 45, 'EN_MANTENIMIENTO', '2026-01-21 08:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 9. TARIFAS (prefijo 9 - D15, D17)
+-- 10. TARIFAS (prefijo 9 - D15, D17)
 -- ----------------------------------------------------------------------------
-INSERT INTO tarifa (id, medio_transporte, origen_id, destino_id, costo_base, costo_por_km, vigente_desde, vigente_hasta, activo) VALUES
-    ('90000000-0000-0000-0000-000000000001', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000004', 3800.00, 0.25, '2026-01-01', '2026-12-31', TRUE),
-    ('90000000-0000-0000-0000-000000000002', 'MARITIMO', '50000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000005', 4900.00, 0.28, '2026-01-01', '2026-12-31', TRUE),
-    ('90000000-0000-0000-0000-000000000003', 'TERRESTRE', '50000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', 450.00, 1.80, '2026-01-01', '2026-12-31', TRUE),
-    ('90000000-0000-0000-0000-000000000004', 'TERRESTRE', '50000000-0000-0000-0000-000000000008', '50000000-0000-0000-0000-000000000001', 1200.00, 1.65, '2026-01-01', '2026-12-31', TRUE),
-    ('90000000-0000-0000-0000-000000000005', 'AEREO', '50000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000007', 8500.00, 1.10, '2026-01-01', '2026-12-31', TRUE),
-    ('90000000-0000-0000-0000-000000000006', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000003', 1400.00, 0.35, '2026-01-01', '2026-12-31', TRUE);
+INSERT INTO tarifa (id, medio_transporte, origen_id, destino_id, costo_base, costo_por_km, vigente_desde, vigente_hasta, estado) VALUES
+    ('90000000-0000-0000-0000-000000000001', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000004', 3800.00, 0.25, '2026-01-01', '2026-12-31', 'ACTIVO'),
+    ('90000000-0000-0000-0000-000000000002', 'MARITIMO', '50000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000005', 4900.00, 0.28, '2026-01-01', '2026-12-31', 'ACTIVO'),
+    ('90000000-0000-0000-0000-000000000003', 'TERRESTRE', '50000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', 450.00, 1.80, '2026-01-01', '2026-12-31', 'ACTIVO'),
+    ('90000000-0000-0000-0000-000000000004', 'TERRESTRE', '50000000-0000-0000-0000-000000000008', '50000000-0000-0000-0000-000000000001', 1200.00, 1.65, '2026-01-01', '2026-12-31', 'ACTIVO'),
+    ('90000000-0000-0000-0000-000000000005', 'AEREO', '50000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000007', 8500.00, 1.10, '2026-01-01', '2026-12-31', 'ACTIVO'),
+    ('90000000-0000-0000-0000-000000000006', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000003', 1400.00, 0.35, '2026-01-01', '2026-12-31', 'ACTIVO');
 
 -- ----------------------------------------------------------------------------
--- 10. ENVÍOS (prefijo a - D1, D4, D7)
+-- 11. ENVÍOS (prefijo a - D1, D4, D7)
+-- Cubre los cinco estados. El envío 4 está DEMORADO a propósito (ver tramos).
 -- ----------------------------------------------------------------------------
 INSERT INTO envio (id, cliente_id, origen_id, destino_id, estado, prioridad, fecha_creacion, fecha_llegada_real) VALUES
     ('a0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000004', 'ENTREGADO', 'ALTA', '2026-01-10 09:00:00+00', '2026-01-30 16:45:00+00'),
@@ -116,29 +135,31 @@ INSERT INTO envio (id, cliente_id, origen_id, destino_id, estado, prioridad, fec
     ('a0000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000007', 'CANCELADO', 'ALTA', '2026-01-15 08:30:00+00', NULL);
 
 -- ----------------------------------------------------------------------------
--- 11. TRAMOS (prefijo b - D5, D6, D10, D15, D16, D17)
+-- 12. TRAMOS (prefijo b - D5, D6, D10, D15, D16, D17)
 -- ----------------------------------------------------------------------------
 INSERT INTO tramo (id, envio_id, vehiculo_id, medio_transporte, origen_id, destino_id, orden, fecha_salida, fecha_llegada_estimada, costo, fecha_llegada_real) VALUES
-    -- Tramos de ENV-1 (Entregado completo: 2 tramos)
+    -- Envío 1 (entregado, 2 tramos completos)
     ('b0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000003', 1, '2026-01-11 10:00:00+00', '2026-01-16 18:00:00+00', 1650.00, '2026-01-16 17:30:00+00'),
     ('b0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000002', 'MARITIMO', '50000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000004', 2, '2026-01-17 12:00:00+00', '2026-01-30 20:00:00+00', 4200.00, '2026-01-30 16:45:00+00'),
 
-    -- Tramos de ENV-2 (En tránsito: tramo 1 completado, tramo 2 navegando)
+    -- Envío 2 (en tránsito: tramo 1 completado, tramo 2 navegando)
     ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000003', 'TERRESTRE', '50000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', 1, '2026-02-01 12:00:00+00', '2026-02-01 18:00:00+00', 480.00, '2026-02-01 17:50:00+00'),
     ('b0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000001', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000003', 2, '2026-02-02 08:00:00+00', '2026-02-07 20:00:00+00', 1550.00, NULL),
 
-    -- Tramos de ENV-3 (En puerto)
+    -- Envío 3 (en puerto)
     ('b0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000002', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000005', 1, '2026-02-06 10:00:00+00', '2026-03-01 12:00:00+00', 5800.00, NULL),
 
-    -- Tramos de ENV-4 (DEMORADO a propósito: estimada era 2026-01-20, no entregado y sin fecha real)
+    -- Envío 4 (DEMORADO a propósito: estimada 2026-01-20, no entregado, sin fecha real)
     ('b0000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-000000000004', 'TERRESTRE', '50000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000003', 1, '2026-01-06 09:00:00+00', '2026-01-20 18:00:00+00', 2100.00, NULL),
 
-    -- Tramos de ENV-5 (Creado, planificado a futuro)
+    -- Envío 5 (creado, planificado a futuro)
     ('b0000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000004', 'TERRESTRE', '50000000-0000-0000-0000-000000000008', '50000000-0000-0000-0000-000000000001', 1, '2026-02-15 08:00:00+00', '2026-02-16 20:00:00+00', 1300.00, NULL),
     ('b0000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000001', 'MARITIMO', '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000004', 2, '2026-02-18 10:00:00+00', '2026-03-05 18:00:00+00', 4100.00, NULL);
 
 -- ----------------------------------------------------------------------------
--- 12. ENVIO_CONTENEDOR (N:M)
+-- 13. ENVIO_CONTENEDOR (N:M)
+-- El contenedor 001 aparece en dos envíos distintos a lo largo del tiempo:
+-- la relación N:M es histórica, no simultánea (supuesto 1).
 -- ----------------------------------------------------------------------------
 INSERT INTO envio_contenedor (envio_id, contenedor_id, fecha_asignacion) VALUES
     ('a0000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '2026-01-10 10:00:00+00'),
@@ -148,39 +169,45 @@ INSERT INTO envio_contenedor (envio_id, contenedor_id, fecha_asignacion) VALUES
     ('a0000000-0000-0000-0000-000000000004', '70000000-0000-0000-0000-000000000001', '2026-01-05 08:30:00+00');
 
 -- ----------------------------------------------------------------------------
--- 13. FACTURAS (prefijo c - D15)
+-- 14. FACTURAS (prefijo c - D15, supuesto 4)
+-- Las tres primeras son a CLIENTE; la cuarta es a un OPERADOR, para demostrar
+-- que la facturación no está limitada a clientes.
 -- ----------------------------------------------------------------------------
-INSERT INTO factura (id, cliente_id, envio_id, numero_factura, fecha_emision, fecha_vencimiento, importe_total, estado) VALUES
-    ('c0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'FC-A-0001-00001001', '2026-01-31 10:00:00+00', '2026-02-15 23:59:59+00', 5850.00, 'PAGADA'),
-    ('c0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 'FC-A-0001-00001002', '2026-02-02 09:00:00+00', '2026-02-20 23:59:59+00', 2030.00, 'EMITIDA'),
-    ('c0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 'FC-A-0001-00001003', '2026-02-06 11:00:00+00', '2026-02-25 23:59:59+00', 5800.00, 'EMITIDA');
+INSERT INTO factura (id, titular_tipo, titular_id, envio_id, numero_factura, fecha_emision, fecha_vencimiento, importe_total, estado) VALUES
+    ('c0000000-0000-0000-0000-000000000001', 'CLIENTE', '20000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'FC-A-0001-00001001', '2026-01-31 10:00:00+00', '2026-02-15 23:59:59+00', 5850.00, 'PAGADA'),
+    ('c0000000-0000-0000-0000-000000000002', 'CLIENTE', '20000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002', 'FC-A-0001-00001002', '2026-02-02 09:00:00+00', '2026-02-20 23:59:59+00', 2030.00, 'EMITIDA'),
+    ('c0000000-0000-0000-0000-000000000003', 'CLIENTE', '20000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 'FC-A-0001-00001003', '2026-02-06 11:00:00+00', '2026-02-25 23:59:59+00', 5800.00, 'EMITIDA'),
+    ('c0000000-0000-0000-0000-000000000004', 'OPERADOR', '30000000-0000-0000-0000-000000000001', NULL, 'FC-B-0002-00000045', '2026-02-07 09:00:00+00', '2026-02-28 23:59:59+00', 12400.00, 'EMITIDA');
 
 -- ----------------------------------------------------------------------------
--- 14. PAGOS (prefijo d - D15)
+-- 15. PAGOS (prefijo d - D15). El titular se deriva de la factura.
 -- ----------------------------------------------------------------------------
-INSERT INTO pago (id, factura_id, cliente_id, monto, medio_pago, fecha_pago, referencia_transaccion) VALUES
-    ('d0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 5850.00, 'TRANSFERENCIA', '2026-02-05 14:22:00+00', 'TRF-BANCO-NACION-998811');
+INSERT INTO pago (id, factura_id, monto, medio_pago, fecha_pago, referencia_transaccion) VALUES
+    ('d0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 5850.00, 'TRANSFERENCIA', '2026-02-05 14:22:00+00', 'TRF-BANCO-NACION-998811');
 
 -- ----------------------------------------------------------------------------
--- 15. CUENTAS CORRIENTES (prefijo e - D15)
+-- 16. CUENTAS CORRIENTES (prefijo e - D15, supuesto 4)
 -- ----------------------------------------------------------------------------
-INSERT INTO cuenta_corriente (id, cliente_id, saldo, limite_credito, fecha_apertura, fecha_actualizacion) VALUES
-    ('e0000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 0.00, 25000.00, '2026-01-10 09:00:00+00', '2026-02-05 14:22:00+00'),
-    ('e0000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', -2030.00, 15000.00, '2026-01-12 10:00:00+00', '2026-02-02 09:00:00+00'),
-    ('e0000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', -5800.00, 30000.00, '2026-01-15 11:30:00+00', '2026-02-06 11:00:00+00'),
-    ('e0000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000004', 0.00, 20000.00, '2026-02-01 08:45:00+00', '2026-02-01 08:45:00+00');
+INSERT INTO cuenta_corriente (id, titular_tipo, titular_id, saldo, limite_credito, fecha_apertura, fecha_actualizacion) VALUES
+    ('e0000000-0000-0000-0000-000000000001', 'CLIENTE', '20000000-0000-0000-0000-000000000001', 0.00, 25000.00, '2026-01-10 09:00:00+00', '2026-02-05 14:22:00+00'),
+    ('e0000000-0000-0000-0000-000000000002', 'CLIENTE', '20000000-0000-0000-0000-000000000002', -2030.00, 15000.00, '2026-01-12 10:00:00+00', '2026-02-02 09:00:00+00'),
+    ('e0000000-0000-0000-0000-000000000003', 'CLIENTE', '20000000-0000-0000-0000-000000000003', -5800.00, 30000.00, '2026-01-15 11:30:00+00', '2026-02-06 11:00:00+00'),
+    ('e0000000-0000-0000-0000-000000000004', 'CLIENTE', '20000000-0000-0000-0000-000000000004', 0.00, 20000.00, '2026-02-01 08:45:00+00', '2026-02-01 08:45:00+00'),
+    ('e0000000-0000-0000-0000-000000000005', 'OPERADOR', '30000000-0000-0000-0000-000000000001', -12400.00, 50000.00, '2026-01-02 08:00:00+00', '2026-02-07 09:00:00+00'),
+    ('e0000000-0000-0000-0000-000000000006', 'PROVEEDOR', '40000000-0000-0000-0000-000000000001', 0.00, 10000.00, '2026-01-03 08:00:00+00', '2026-01-03 08:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 16. MOVIMIENTOS DE CUENTA CORRIENTE (prefijo f - D15)
+-- 17. MOVIMIENTOS DE CUENTA CORRIENTE (prefijo f - D15)
 -- ----------------------------------------------------------------------------
 INSERT INTO movimiento_cuenta (id, cuenta_corriente_id, factura_id, pago_id, tipo, monto, descripcion, fecha) VALUES
-    ('f0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, 'DEBITO', 5850.00, 'Emisión factura FC-A-0001-00001001 (Envío ENV-1)', '2026-01-31 10:00:00+00'),
-    ('f0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', NULL, 'd0000000-0000-0000-0000-000000000001', 'CREDITO', 5850.00, 'Cobro pago referencia TRF-BANCO-NACION-998811', '2026-02-05 14:22:00+00'),
-    ('f0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', NULL, 'DEBITO', 2030.00, 'Emisión factura FC-A-0001-00001002 (Envío ENV-2)', '2026-02-02 09:00:00+00'),
-    ('f0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000003', NULL, 'DEBITO', 5800.00, 'Emisión factura FC-A-0001-00001003 (Envío ENV-3)', '2026-02-06 11:00:00+00');
+    ('f0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', NULL, 'DEBITO', 5850.00, 'Emisión factura FC-A-0001-00001001 (envío 1)', '2026-01-31 10:00:00+00'),
+    ('f0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', NULL, 'd0000000-0000-0000-0000-000000000001', 'CREDITO', 5850.00, 'Cobro pago TRF-BANCO-NACION-998811', '2026-02-05 14:22:00+00'),
+    ('f0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', NULL, 'DEBITO', 2030.00, 'Emisión factura FC-A-0001-00001002 (envío 2)', '2026-02-02 09:00:00+00'),
+    ('f0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000003', NULL, 'DEBITO', 5800.00, 'Emisión factura FC-A-0001-00001003 (envío 3)', '2026-02-06 11:00:00+00'),
+    ('f0000000-0000-0000-0000-000000000005', 'e0000000-0000-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000004', NULL, 'DEBITO', 12400.00, 'Emisión factura FC-B-0002-00000045 (servicios de flota)', '2026-02-07 09:00:00+00');
 
 -- ----------------------------------------------------------------------------
--- 17. OUTBOX (prefijo aa - Eventos para sincronización con Neo4j, MongoDB y Redis)
+-- 18. OUTBOX (prefijo aa - eventos para Neo4j, MongoDB y Redis)
 -- ----------------------------------------------------------------------------
 INSERT INTO outbox (id, agregado_tipo, agregado_id, evento_tipo, payload, fecha_creacion, procesado, fecha_procesado, reintentos) VALUES
     ('aa000000-0000-0000-0000-000000000001', 'ENVIO', 'a0000000-0000-0000-0000-000000000001', 'ENVIO_CREADO', '{"id": "a0000000-0000-0000-0000-000000000001", "cliente_id": "20000000-0000-0000-0000-000000000001", "estado": "CREADO"}', '2026-01-10 09:00:00+00', TRUE, '2026-01-10 09:01:00+00', 0),

@@ -3,38 +3,46 @@
 -- Base de datos: PostgreSQL 16
 -- Plataforma de Logística Internacional y Monitoreo IoT
 --
--- Contiene las 17 tablas relacionales y transaccionales del sistema,
--- respetando estrictamente las decisiones de diseño de docs/decisiones.md:
---   - D1 / D17: Enums como restricciones CHECK
---   - D5: Tramo como tabla propia con FKs a envio, vehiculo, origen y destino
---   - D7: fecha_llegada_estimada se deriva de los tramos (no denormalizada en envio)
+-- Autor original: Fran. Correcciones de Thiago (ver "CORRECCIONES" abajo).
+--
+-- Respeta las decisiones de docs/decisiones.md:
+--   - D1 / D17: enums como restricciones CHECK
+--   - D5: tramo como tabla propia con FKs a envio, vehiculo, origen y destino
+--   - D7: fecha_llegada_estimada se deriva de los tramos (no va en envio)
 --   - D8: codigo_iso de contenedor validado en 11 caracteres (ISO 6346) y UNIQUE
 --   - D10: orden entero >= 1 en tramo con UNIQUE (envio_id, orden)
---   - D15: Dinero e importes en NUMERIC(12,2) (nunca FLOAT ni REAL)
+--   - D15: dinero e importes en NUMERIC(12,2) (nunca FLOAT ni REAL)
 --   - D16: tramo.vehiculo_id NOT NULL, tramo sin columna estado
+--   - D19: todos los valores de enum en MAYUSCULAS, igual en los cinco motores
+--
+-- CORRECCIONES aplicadas sobre la version original:
+--   1. Se agrega la tabla ROL. El enunciado la lista como entidad propia
+--      (ID Rol, Descripcion, Nivel de permisos) y pide "administracion de
+--      usuarios y roles". Estaba resuelta como una columna VARCHAR en usuario,
+--      lo que impedia administrarlos sin un ALTER TABLE.
+--   2. usuario: se agregan cliente_id y apellido (el enunciado los lista) y
+--      rol pasa a ser rol_id con FK a la tabla rol.
+--   3. activo BOOLEAN -> estado VARCHAR con CHECK en todas las tablas que el
+--      modelo acordado define con "estado" (D1). La baja logica es
+--      estado = 'INACTIVO' (D20).
+--   4. Se agrega pais a cliente, operador y proveedor (el enunciado lo lista).
+--   5. operador.nombre -> razon_social, para unificar con cliente y proveedor.
+--   6. vehiculo.patente -> identificacion: un buque o un avion no tienen patente.
+--   7. factura, pago y cuenta_corriente pasan a titular_tipo + titular_id
+--      (CLIENTE / PROVEEDOR / OPERADOR), segun el supuesto 4 del grupo, que se
+--      apoya en la pagina 1 del enunciado: "facturacion, pagos y cuentas
+--      corrientes de los clientes, proveedores y operadores logisticos".
+--      Estaban limitadas a cliente_id, lo que hacia imposible ese requisito.
+--   8. contenedor.tipo recibe su CHECK, como el resto de los campos tipo.
 -- ============================================================================
 
--- Extensión para generación de UUID v4 (PostgreSQL 16 lo incluye nativo)
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================================
 -- 1. TABLAS MAESTRAS Y DE ACTORES
 -- ============================================================================
 
--- 1.1 Usuarios del sistema (para gestión de accesos y sesiones en Redis)
-CREATE TABLE usuario (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    nombre VARCHAR(100) NOT NULL,
-    email VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    rol VARCHAR(50) NOT NULL,
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
-    fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_usuario_email UNIQUE (email),
-    CONSTRAINT chk_usuario_rol CHECK (rol IN ('ADMINISTRADOR', 'OPERADOR', 'AUDITOR', 'CLIENTE'))
-);
-
--- 1.2 Clientes (solicitantes de envíos)
+-- 1.1 Clientes (solicitantes de envíos)
 CREATE TABLE cliente (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cuit VARCHAR(20) NOT NULL,
@@ -42,24 +50,55 @@ CREATE TABLE cliente (
     email VARCHAR(255) NOT NULL,
     telefono VARCHAR(50),
     direccion VARCHAR(255),
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    pais VARCHAR(100) NOT NULL,
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
     fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_cliente_cuit UNIQUE (cuit)
+    CONSTRAINT uq_cliente_cuit UNIQUE (cuit),
+    CONSTRAINT chk_cliente_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
 );
 
--- 1.3 Operadores logísticos (gestores de flota / vehículos - D11)
+-- 1.2 Roles del sistema (entidad del enunciado: ID, Descripción, Nivel de permisos)
+CREATE TABLE rol (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    descripcion VARCHAR(100) NOT NULL,
+    nivel_permisos INT NOT NULL,
+    CONSTRAINT uq_rol_descripcion UNIQUE (descripcion),
+    CONSTRAINT chk_rol_nivel CHECK (nivel_permisos BETWEEN 1 AND 100)
+);
+
+-- 1.3 Usuarios del sistema (las sesiones activas viven en Redis)
+-- cliente_id es NULL para los usuarios internos (administrador, operador, auditor).
+CREATE TABLE usuario (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente_id UUID,
+    rol_id UUID NOT NULL,
+    nombre VARCHAR(100) NOT NULL,
+    apellido VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
+    fecha_registro TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_usuario_email UNIQUE (email),
+    CONSTRAINT fk_usuario_cliente FOREIGN KEY (cliente_id) REFERENCES cliente(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_usuario_rol FOREIGN KEY (rol_id) REFERENCES rol(id) ON DELETE RESTRICT,
+    CONSTRAINT chk_usuario_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
+);
+
+-- 1.4 Operadores logísticos (dueños de la flota de vehículos - D11)
 CREATE TABLE operador (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cuit VARCHAR(20) NOT NULL,
-    nombre VARCHAR(150) NOT NULL,
+    razon_social VARCHAR(150) NOT NULL,
     email VARCHAR(255) NOT NULL,
     telefono VARCHAR(50),
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    pais VARCHAR(100) NOT NULL,
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
     fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_operador_cuit UNIQUE (cuit)
+    CONSTRAINT uq_operador_cuit UNIQUE (cuit),
+    CONSTRAINT chk_operador_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
 );
 
--- 1.4 Proveedores (servicios portuarios, mantenimiento, etc. - D11)
+-- 1.5 Proveedores (servicios portuarios, mantenimiento, combustible)
 CREATE TABLE proveedor (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cuit VARCHAR(20) NOT NULL,
@@ -67,12 +106,14 @@ CREATE TABLE proveedor (
     tipo_servicio VARCHAR(100) NOT NULL,
     email VARCHAR(255) NOT NULL,
     telefono VARCHAR(50),
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    pais VARCHAR(100) NOT NULL,
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
     fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_proveedor_cuit UNIQUE (cuit)
+    CONSTRAINT uq_proveedor_cuit UNIQUE (cuit),
+    CONSTRAINT chk_proveedor_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
 );
 
--- 1.5 Ubicaciones (puertos, aeropuertos, centros de distribución, almacenes)
+-- 1.6 Ubicaciones (puertos, aeropuertos, centros de distribución, depósitos)
 CREATE TABLE ubicacion (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     nombre VARCHAR(150) NOT NULL,
@@ -82,27 +123,30 @@ CREATE TABLE ubicacion (
     pais VARCHAR(100) NOT NULL,
     latitud NUMERIC(9,6),
     longitud NUMERIC(9,6),
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
-    CONSTRAINT chk_ubicacion_tipo CHECK (tipo IN ('PUERTO', 'AEROPUERTO', 'CENTRO_DISTRIBUCION', 'ALMACEN', 'DEPOSITO_FISCAL'))
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
+    CONSTRAINT chk_ubicacion_tipo CHECK (tipo IN ('PUERTO', 'AEROPUERTO', 'CENTRO_DISTRIBUCION', 'ALMACEN', 'DEPOSITO_FISCAL')),
+    CONSTRAINT chk_ubicacion_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
 );
 
--- 1.6 Vehículos de transporte
+-- 1.7 Vehículos de transporte
+-- identificacion, no patente: un buque se identifica por IMO y un avión por matrícula.
 CREATE TABLE vehiculo (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     operador_id UUID NOT NULL,
-    patente VARCHAR(30) NOT NULL,
+    identificacion VARCHAR(30) NOT NULL,
     tipo VARCHAR(50) NOT NULL,
     medio_transporte VARCHAR(20) NOT NULL,
-    capacidad_peso_kg NUMERIC(10,2),
+    capacidad_peso_kg NUMERIC(12,2),
     capacidad_volumen_m3 NUMERIC(10,2),
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
-    CONSTRAINT uq_vehiculo_patente UNIQUE (patente),
+    estado VARCHAR(30) NOT NULL DEFAULT 'ACTIVO',
+    CONSTRAINT uq_vehiculo_identificacion UNIQUE (identificacion),
     CONSTRAINT fk_vehiculo_operador FOREIGN KEY (operador_id) REFERENCES operador(id) ON DELETE RESTRICT,
     CONSTRAINT chk_vehiculo_tipo CHECK (tipo IN ('CAMION', 'BUQUE', 'AVION', 'TREN')),
-    CONSTRAINT chk_vehiculo_medio CHECK (medio_transporte IN ('TERRESTRE', 'MARITIMO', 'AEREO'))
+    CONSTRAINT chk_vehiculo_medio CHECK (medio_transporte IN ('TERRESTRE', 'MARITIMO', 'AEREO')),
+    CONSTRAINT chk_vehiculo_estado CHECK (estado IN ('ACTIVO', 'INACTIVO', 'EN_MANTENIMIENTO'))
 );
 
--- 1.7 Contenedores (unidades de carga - D1, D8)
+-- 1.8 Contenedores (unidades de carga - D1, D8)
 CREATE TABLE contenedor (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     codigo_iso VARCHAR(11) NOT NULL,
@@ -113,10 +157,13 @@ CREATE TABLE contenedor (
     CONSTRAINT uq_contenedor_codigo_iso UNIQUE (codigo_iso),
     CONSTRAINT chk_contenedor_codigo_iso_len CHECK (length(codigo_iso) = 11),
     CONSTRAINT chk_contenedor_capacidad_positiva CHECK (capacidad > 0),
+    CONSTRAINT chk_contenedor_tipo CHECK (tipo IN ('DRY_20', 'DRY_40', 'REEFER_20', 'REEFER_40', 'OPEN_TOP_40', 'TANK_20', 'FLAT_RACK_40')),
     CONSTRAINT chk_contenedor_estado CHECK (estado IN ('DISPONIBLE', 'ASIGNADO', 'EN_TRANSITO', 'EN_MANTENIMIENTO', 'BAJA'))
 );
 
--- 1.8 Sensores IoT (hardware montado en contenedores monitoreado en tiempo real)
+-- 1.9 Sensores IoT montados en contenedores
+-- intervalo_reporte_segundos: cada cuánto debe reportar. Lo usa la detección de
+-- sensores inactivos (D13) para saber a partir de cuándo el silencio es anomalía.
 CREATE TABLE sensor (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     contenedor_id UUID,
@@ -129,11 +176,11 @@ CREATE TABLE sensor (
     CONSTRAINT uq_sensor_numero_serie UNIQUE (numero_serie),
     CONSTRAINT fk_sensor_contenedor FOREIGN KEY (contenedor_id) REFERENCES contenedor(id) ON DELETE SET NULL,
     CONSTRAINT chk_sensor_tipo CHECK (tipo IN ('TEMPERATURA', 'HUMEDAD', 'VIBRACION', 'GPS', 'MULTISENSOR')),
-    CONSTRAINT chk_sensor_estado CHECK (estado IN ('ACTIVO', 'INACTIVO', 'MANTENIMIENTO', 'BAJA')),
+    CONSTRAINT chk_sensor_estado CHECK (estado IN ('ACTIVO', 'INACTIVO', 'EN_MANTENIMIENTO', 'BAJA')),
     CONSTRAINT chk_sensor_intervalo CHECK (intervalo_reporte_segundos > 0)
 );
 
--- 1.9 Tarifas de transporte (D15, D17)
+-- 1.10 Tarifas de transporte (D15, D17)
 CREATE TABLE tarifa (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     medio_transporte VARCHAR(20) NOT NULL,
@@ -143,14 +190,15 @@ CREATE TABLE tarifa (
     costo_por_km NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     vigente_desde DATE NOT NULL,
     vigente_hasta DATE,
-    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
     CONSTRAINT fk_tarifa_origen FOREIGN KEY (origen_id) REFERENCES ubicacion(id) ON DELETE RESTRICT,
     CONSTRAINT fk_tarifa_destino FOREIGN KEY (destino_id) REFERENCES ubicacion(id) ON DELETE RESTRICT,
     CONSTRAINT chk_tarifa_medio CHECK (medio_transporte IN ('TERRESTRE', 'MARITIMO', 'AEREO')),
     CONSTRAINT chk_tarifa_costo_base CHECK (costo_base >= 0),
     CONSTRAINT chk_tarifa_costo_km CHECK (costo_por_km >= 0),
     CONSTRAINT chk_tarifa_origen_destino CHECK (origen_id IS NULL OR destino_id IS NULL OR origen_id <> destino_id),
-    CONSTRAINT chk_tarifa_vigencia CHECK (vigente_hasta IS NULL OR vigente_hasta >= vigente_desde)
+    CONSTRAINT chk_tarifa_vigencia CHECK (vigente_hasta IS NULL OR vigente_hasta >= vigente_desde),
+    CONSTRAINT chk_tarifa_estado CHECK (estado IN ('ACTIVO', 'INACTIVO'))
 );
 
 -- ============================================================================
@@ -158,6 +206,8 @@ CREATE TABLE tarifa (
 -- ============================================================================
 
 -- 2.1 Envíos (D1, D4, D7)
+-- Las dos últimas restricciones replican en la base los invariantes del dominio
+-- (Envio._validar): la misma regla validada en las dos capas.
 CREATE TABLE envio (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cliente_id UUID NOT NULL,
@@ -208,7 +258,10 @@ CREATE TABLE tramo (
     CONSTRAINT chk_tramo_real_posterior_salida CHECK (fecha_llegada_real IS NULL OR fecha_llegada_real >= fecha_salida)
 );
 
--- 2.3 Asociación Envio - Contenedor (Relación N:M)
+-- 2.3 Asociación Envío - Contenedor (N:M, supuesto 1)
+-- Que un contenedor no esté en dos envíos ACTIVOS a la vez no se puede declarar
+-- acá (la relación es N:M histórica, a propósito): lo valida el servicio con
+-- EstadoContenedor.puede_asignarse(), según el criterio de D3.
 CREATE TABLE envio_contenedor (
     envio_id UUID NOT NULL,
     contenedor_id UUID NOT NULL,
@@ -219,13 +272,19 @@ CREATE TABLE envio_contenedor (
 );
 
 -- ============================================================================
--- 3. FACTURACIÓN Y FINANZAS (D14, D15)
+-- 3. FACTURACIÓN Y FINANZAS (D15, supuesto 4)
+--
+-- titular_tipo + titular_id: el titular puede ser un CLIENTE, un PROVEEDOR o un
+-- OPERADOR (enunciado, pág. 1). Es una referencia polimórfica, así que no se
+-- puede declarar una FK: la existencia del titular la valida el servicio. Es el
+-- precio de cumplir el requisito con una sola tabla en vez de tres.
 -- ============================================================================
 
 -- 3.1 Facturas
 CREATE TABLE factura (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cliente_id UUID NOT NULL,
+    titular_tipo VARCHAR(20) NOT NULL,
+    titular_id UUID NOT NULL,
     envio_id UUID,
     numero_factura VARCHAR(50) NOT NULL,
     fecha_emision TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -233,38 +292,38 @@ CREATE TABLE factura (
     importe_total NUMERIC(12,2) NOT NULL,
     estado VARCHAR(30) NOT NULL DEFAULT 'EMITIDA',
     CONSTRAINT uq_factura_numero UNIQUE (numero_factura),
-    CONSTRAINT fk_factura_cliente FOREIGN KEY (cliente_id) REFERENCES cliente(id) ON DELETE RESTRICT,
     CONSTRAINT fk_factura_envio FOREIGN KEY (envio_id) REFERENCES envio(id) ON DELETE SET NULL,
+    CONSTRAINT chk_factura_titular_tipo CHECK (titular_tipo IN ('CLIENTE', 'PROVEEDOR', 'OPERADOR')),
     CONSTRAINT chk_factura_importe CHECK (importe_total >= 0),
     CONSTRAINT chk_factura_estado CHECK (estado IN ('EMITIDA', 'PAGADA', 'ANULADA', 'VENCIDA')),
     CONSTRAINT chk_factura_fechas CHECK (fecha_vencimiento >= fecha_emision)
 );
 
--- 3.2 Pagos de clientes
+-- 3.2 Pagos
+-- No lleva titular: se deriva de la factura, que es su única dueña.
 CREATE TABLE pago (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     factura_id UUID NOT NULL,
-    cliente_id UUID NOT NULL,
     monto NUMERIC(12,2) NOT NULL,
     medio_pago VARCHAR(50) NOT NULL,
     fecha_pago TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     referencia_transaccion VARCHAR(100),
     CONSTRAINT fk_pago_factura FOREIGN KEY (factura_id) REFERENCES factura(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_pago_cliente FOREIGN KEY (cliente_id) REFERENCES cliente(id) ON DELETE RESTRICT,
     CONSTRAINT chk_pago_monto CHECK (monto > 0),
     CONSTRAINT chk_pago_medio CHECK (medio_pago IN ('TRANSFERENCIA', 'TARJETA', 'EFECTIVO', 'CHEQUE'))
 );
 
--- 3.3 Cuenta corriente por cliente
+-- 3.3 Cuentas corrientes (una por titular)
 CREATE TABLE cuenta_corriente (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cliente_id UUID NOT NULL,
+    titular_tipo VARCHAR(20) NOT NULL,
+    titular_id UUID NOT NULL,
     saldo NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     limite_credito NUMERIC(12,2) NOT NULL DEFAULT 0.00,
     fecha_apertura TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uq_cuenta_corriente_cliente UNIQUE (cliente_id),
-    CONSTRAINT fk_cc_cliente FOREIGN KEY (cliente_id) REFERENCES cliente(id) ON DELETE RESTRICT,
+    CONSTRAINT uq_cuenta_corriente_titular UNIQUE (titular_tipo, titular_id),
+    CONSTRAINT chk_cc_titular_tipo CHECK (titular_tipo IN ('CLIENTE', 'PROVEEDOR', 'OPERADOR')),
     CONSTRAINT chk_cc_limite CHECK (limite_credito >= 0)
 );
 
@@ -286,10 +345,12 @@ CREATE TABLE movimiento_cuenta (
 );
 
 -- ============================================================================
--- 4. SINCRONIZACIÓN POLÍGLOTA (OUTBOX PATTERN)
+-- 4. SINCRONIZACIÓN POLÍGLOTA (PATRÓN OUTBOX)
+--
+-- El evento se escribe en la MISMA transacción que el cambio de datos. Un
+-- worker idempotente lo propaga después a Neo4j, MongoDB y Redis.
 -- ============================================================================
 
--- 4.1 Outbox transaccional para propagación a Neo4j, MongoDB y Redis
 CREATE TABLE outbox (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     agregado_tipo VARCHAR(50) NOT NULL,
@@ -308,38 +369,37 @@ CREATE TABLE outbox (
 -- 5. ÍNDICES DE OPTIMIZACIÓN (REPORTES OPERATIVOS Y ANALÍTICOS)
 -- ============================================================================
 
--- Reporte: Envíos por fecha de creación (rango parametrizado)
+-- Reporte: envíos por fecha de creación (rango parametrizado)
 CREATE INDEX idx_envio_fecha_creacion ON envio (fecha_creacion);
 
--- Reporte: Envíos por estado (ConteoEnviosPorEstado)
+-- Reporte: envíos por estado (ConteoEnviosPorEstado)
 CREATE INDEX idx_envio_estado_fecha ON envio (estado, fecha_creacion);
 
--- Reporte: Envíos por cliente (ConteoEnviosPorCliente)
+-- Reporte: envíos por cliente (ConteoEnviosPorCliente)
 CREATE INDEX idx_envio_cliente_fecha ON envio (cliente_id, fecha_creacion);
 
--- Reporte: Envíos por país destino (ConteoEnviosPorPais via destino_id -> ubicacion.pais)
+-- Reporte: envíos por país destino (ConteoEnviosPorPais vía destino_id -> ubicacion.pais)
 CREATE INDEX idx_envio_destino_id ON envio (destino_id);
 CREATE INDEX idx_ubicacion_pais ON ubicacion (pais);
 
--- Reporte: Tiempos de envío por cliente y tiempo promedio de entrega (solo ENTREGADO)
+-- Reporte: tiempos de envío por cliente y tiempo promedio de entrega (solo ENTREGADO)
 CREATE INDEX idx_envio_entregados_tiempos ON envio (cliente_id, fecha_creacion, fecha_llegada_real)
     WHERE estado = 'ENTREGADO';
 
 CREATE INDEX idx_envio_entregados_promedio ON envio (fecha_creacion, fecha_llegada_real)
     WHERE estado = 'ENTREGADO';
 
--- Reporte / Consulta: Envíos demorados (D7)
--- Filtra envíos no entregados ni cancelados con llegada estimada vencida en tramos
+-- Reporte: envíos demorados (D7). La estimada sale de agregar sobre tramo.
 CREATE INDEX idx_envio_activos ON envio (estado)
     WHERE estado NOT IN ('ENTREGADO', 'CANCELADO');
 
 CREATE INDEX idx_tramo_envio_estimada ON tramo (envio_id, fecha_llegada_estimada);
 
--- Reporte: Ranking de clientes por volumen transportado (sumando capacidad de contenedores)
+-- Reporte: ranking de clientes por volumen transportado
 CREATE INDEX idx_ec_envio ON envio_contenedor (envio_id);
 CREATE INDEX idx_ec_contenedor ON envio_contenedor (contenedor_id);
 
--- Reporte: Costos por tipo de transporte (D5, D17)
+-- Reporte: costos por tipo de transporte (D5, D17)
 CREATE INDEX idx_tramo_medio_costo ON tramo (medio_transporte, costo);
 
 -- Índices de navegación operativa
@@ -348,10 +408,17 @@ CREATE INDEX idx_tramo_origen ON tramo (origen_id);
 CREATE INDEX idx_tramo_destino ON tramo (destino_id);
 CREATE INDEX idx_sensor_contenedor ON sensor (contenedor_id);
 CREATE INDEX idx_vehiculo_operador ON vehiculo (operador_id);
-CREATE INDEX idx_factura_cliente_estado ON factura (cliente_id, estado);
+CREATE INDEX idx_usuario_cliente ON usuario (cliente_id);
+CREATE INDEX idx_usuario_rol ON usuario (rol_id);
+
+-- Facturación y cuentas corrientes (búsqueda por titular polimórfico)
+CREATE INDEX idx_factura_titular_estado ON factura (titular_tipo, titular_id, estado);
 CREATE INDEX idx_pago_factura ON pago (factura_id);
 CREATE INDEX idx_mc_cuenta ON movimiento_cuenta (cuenta_corriente_id);
 
--- Índice parcial de eventos pendientes de sincronización en Outbox
+-- Outbox: el worker busca sólo los pendientes, por eso el índice es parcial.
 CREATE INDEX idx_outbox_pendientes ON outbox (fecha_creacion)
     WHERE NOT procesado;
+
+-- Chequeo de consistencia: buscar los eventos de una entidad concreta.
+CREATE INDEX idx_outbox_agregado ON outbox (agregado_tipo, agregado_id);

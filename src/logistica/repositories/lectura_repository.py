@@ -8,7 +8,15 @@ from logistica.domain.lectura import Lectura
 
 class LecturaRepository(ABC):
     @abstractmethod
-    def guardar(self, lectura: Lectura) -> None: ...
+    def guardar(self, lectura: Lectura) -> None:
+        """Persiste una lectura.
+
+        La implementacion de Cassandra escribe en DOS tablas: lecturas_por_sensor
+        y recorrido_por_contenedor. Es doble escritura a proposito, porque
+        Cassandra no hace JOIN y cada consulta necesita su propia tabla. Es
+        idempotente: repetir la escritura con la misma clave no duplica.
+        """
+        ...
 
     @abstractmethod
     def guardar_lote(self, lecturas: list[Lectura]) -> None: ...

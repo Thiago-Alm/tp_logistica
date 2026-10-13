@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS recorrido_por_contenedor (
 --  particion es chica y acotada. Todo el historial sale de UNA particion.
 --  Clustering (momento, evento_id) ASC: seguimiento temporal, de lo mas viejo a lo nuevo.
 --  contenedor_id agregado al evento (propiedad extra, justificada): permite Q5.
+--  ubicacion_id + ubicacion_nombre (D21): el uuid conserva la identidad compartida
+--  con Postgres y Neo4j; el nombre va denormalizado para mostrar sin ir a buscarlo.
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS eventos_por_envio (
   envio_id         uuid,
@@ -96,6 +98,7 @@ CREATE TABLE IF NOT EXISTS eventos_por_envio (
   evento_id        uuid,
   tipo             text,
   contenedor_id    uuid,
+  ubicacion_id     uuid,
   ubicacion_nombre text,
   latitud          double,
   longitud         double,
@@ -116,6 +119,7 @@ CREATE TABLE IF NOT EXISTS eventos_por_contenedor (
   evento_id        uuid,
   envio_id         uuid,
   tipo             text,
+  ubicacion_id     uuid,
   ubicacion_nombre text,
   latitud          double,
   longitud         double,
@@ -136,41 +140,41 @@ CREATE TABLE IF NOT EXISTS eventos_por_contenedor (
 -- DATOS DE PRUEBA minimos (las claves se pisan si se corre de nuevo)
 -- ---------------------------------------------------------------------
 INSERT INTO lecturas_por_sensor (sensor_id, dia, momento, contenedor_id, temperatura, humedad, vibracion, latitud, longitud, bateria)
-VALUES (11111111-1111-4111-8111-111111111111, '2026-10-12', '2026-10-12 10:00:00+0000', dddddddd-0000-4000-8000-000000000001, 4.2, 60.0, 0.1, -34.60, -58.38, 95);
+VALUES (80000000-0000-0000-0000-000000000001, '2026-10-12', '2026-10-12 10:00:00+0000', 70000000-0000-0000-0000-000000000001, 4.2, 60.0, 0.1, -34.60, -58.38, 95);
 INSERT INTO lecturas_por_sensor (sensor_id, dia, momento, contenedor_id, temperatura, humedad, vibracion, latitud, longitud, bateria)
-VALUES (11111111-1111-4111-8111-111111111111, '2026-10-12', '2026-10-12 10:01:00+0000', dddddddd-0000-4000-8000-000000000001, 4.4, 61.0, 0.2, -34.61, -58.39, 95);
+VALUES (80000000-0000-0000-0000-000000000001, '2026-10-12', '2026-10-12 10:01:00+0000', 70000000-0000-0000-0000-000000000001, 4.4, 61.0, 0.2, -34.61, -58.39, 95);
 INSERT INTO lecturas_por_sensor (sensor_id, dia, momento, contenedor_id, temperatura, humedad, vibracion, latitud, longitud, bateria)
-VALUES (11111111-1111-4111-8111-111111111111, '2026-10-12', '2026-10-12 10:02:00+0000', dddddddd-0000-4000-8000-000000000001, 12.5, 62.0, 0.3, -34.62, -58.40, 94);
+VALUES (80000000-0000-0000-0000-000000000001, '2026-10-12', '2026-10-12 10:02:00+0000', 70000000-0000-0000-0000-000000000001, 12.5, 62.0, 0.3, -34.62, -58.40, 94);
 
 INSERT INTO recorrido_por_contenedor (contenedor_id, dia, momento, sensor_id, envio_id, latitud, longitud)
-VALUES (dddddddd-0000-4000-8000-000000000001, '2026-10-12', '2026-10-12 10:00:00+0000', 11111111-1111-4111-8111-111111111111, aaaaaaaa-0000-4000-8000-000000000001, -34.60, -58.38);
+VALUES (70000000-0000-0000-0000-000000000001, '2026-10-12', '2026-10-12 10:00:00+0000', 80000000-0000-0000-0000-000000000001, a0000000-0000-0000-0000-000000000001, -34.60, -58.38);
 INSERT INTO recorrido_por_contenedor (contenedor_id, dia, momento, sensor_id, envio_id, latitud, longitud)
-VALUES (dddddddd-0000-4000-8000-000000000001, '2026-10-12', '2026-10-12 10:01:00+0000', 11111111-1111-4111-8111-111111111111, aaaaaaaa-0000-4000-8000-000000000001, -34.61, -58.39);
+VALUES (70000000-0000-0000-0000-000000000001, '2026-10-12', '2026-10-12 10:01:00+0000', 80000000-0000-0000-0000-000000000001, a0000000-0000-0000-0000-000000000001, -34.61, -58.39);
 
-INSERT INTO eventos_por_envio (envio_id, momento, evento_id, tipo, contenedor_id, ubicacion_nombre, latitud, longitud, descripcion)
-VALUES (aaaaaaaa-0000-4000-8000-000000000001, '2026-10-12 08:00:00+0000', 5eb00000-0000-4000-8000-000000000001, 'carga_iniciada', dddddddd-0000-4000-8000-000000000001, 'Puerto Buenos Aires', -34.60, -58.37, 'Inicio de carga');
-INSERT INTO eventos_por_envio (envio_id, momento, evento_id, tipo, contenedor_id, ubicacion_nombre, latitud, longitud, descripcion)
-VALUES (aaaaaaaa-0000-4000-8000-000000000001, '2026-10-12 12:00:00+0000', 5eb00000-0000-4000-8000-000000000002, 'en_transito', dddddddd-0000-4000-8000-000000000001, 'Rio de la Plata', -34.70, -58.20, 'Zarpo el buque');
+INSERT INTO eventos_por_envio (envio_id, momento, evento_id, tipo, contenedor_id, ubicacion_id, ubicacion_nombre, latitud, longitud, descripcion)
+VALUES (a0000000-0000-0000-0000-000000000001, '2026-10-12 08:00:00+0000', 5eb00000-0000-4000-8000-000000000001, 'CARGA_INICIADA', 70000000-0000-0000-0000-000000000001, 50000000-0000-0000-0000-000000000001, 'Puerto Buenos Aires', -34.60, -58.37, 'Inicio de carga');
+INSERT INTO eventos_por_envio (envio_id, momento, evento_id, tipo, contenedor_id, ubicacion_id, ubicacion_nombre, latitud, longitud, descripcion)
+VALUES (a0000000-0000-0000-0000-000000000001, '2026-10-12 12:00:00+0000', 5eb00000-0000-4000-8000-000000000002, 'EN_TRANSITO', 70000000-0000-0000-0000-000000000001, 50000000-0000-0000-0000-000000000001, 'Rio de la Plata', -34.70, -58.20, 'Zarpo el buque');
 
-INSERT INTO eventos_por_contenedor (contenedor_id, anio_mes, momento, evento_id, envio_id, tipo, ubicacion_nombre, latitud, longitud, descripcion)
-VALUES (dddddddd-0000-4000-8000-000000000001, '2026-10', '2026-10-12 08:00:00+0000', 5eb00000-0000-4000-8000-000000000001, aaaaaaaa-0000-4000-8000-000000000001, 'carga_iniciada', 'Puerto Buenos Aires', -34.60, -58.37, 'Inicio de carga');
+INSERT INTO eventos_por_contenedor (contenedor_id, anio_mes, momento, evento_id, envio_id, tipo, ubicacion_id, ubicacion_nombre, latitud, longitud, descripcion)
+VALUES (70000000-0000-0000-0000-000000000001, '2026-10', '2026-10-12 08:00:00+0000', 5eb00000-0000-4000-8000-000000000001, a0000000-0000-0000-0000-000000000001, 'CARGA_INICIADA', 50000000-0000-0000-0000-000000000001, 'Puerto Buenos Aires', -34.60, -58.37, 'Inicio de carga');
 
 -- ---------------------------------------------------------------------
 -- CONSULTAS DE VERIFICACION (cada una usa la partition key completa)
 -- ---------------------------------------------------------------------
 -- Q1: SELECT * FROM lecturas_por_sensor
---       WHERE sensor_id = 11111111-1111-4111-8111-111111111111 AND dia = '2026-10-12'
+--       WHERE sensor_id = 80000000-0000-0000-0000-000000000001 AND dia = '2026-10-12'
 --         AND momento >= '2026-10-12 10:00:00+0000' AND momento < '2026-10-12 11:00:00+0000';
 -- Q2: SELECT * FROM lecturas_por_sensor
---       WHERE sensor_id = 11111111-1111-4111-8111-111111111111 AND dia = '2026-10-12' LIMIT 1;
+--       WHERE sensor_id = 80000000-0000-0000-0000-000000000001 AND dia = '2026-10-12' LIMIT 1;
 --     (si hoy no hay lecturas, la app prueba con el dia anterior; la deteccion de
 --      sensores inactivos la resuelve Redis con la marca de "ultimo visto")
 -- Q3: SELECT latitud, longitud, momento FROM recorrido_por_contenedor
---       WHERE contenedor_id = dddddddd-0000-4000-8000-000000000001 AND dia = '2026-10-12';
--- Q4: SELECT * FROM eventos_por_envio WHERE envio_id = aaaaaaaa-0000-4000-8000-000000000001;
+--       WHERE contenedor_id = 70000000-0000-0000-0000-000000000001 AND dia = '2026-10-12';
+-- Q4: SELECT * FROM eventos_por_envio WHERE envio_id = a0000000-0000-0000-0000-000000000001;
 -- Q5: SELECT * FROM eventos_por_contenedor
---       WHERE contenedor_id = dddddddd-0000-4000-8000-000000000001 AND anio_mes = '2026-10';
+--       WHERE contenedor_id = 70000000-0000-0000-0000-000000000001 AND anio_mes = '2026-10';
 --
 -- Consulta que FALLA a proposito (para la defensa): falta parte de la partition key
--- SELECT * FROM lecturas_por_sensor WHERE sensor_id = 11111111-1111-4111-8111-111111111111;
+-- SELECT * FROM lecturas_por_sensor WHERE sensor_id = 80000000-0000-0000-0000-000000000001;
 --   -> pide ALLOW FILTERING o da error: Cassandra no sabe en que particion buscar.

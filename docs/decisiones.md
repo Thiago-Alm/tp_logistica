@@ -288,30 +288,43 @@ si se quiere profundidad variable.
 
 ---
 
-## D12 — Los incidentes se propagan a Neo4j
+## D12 — El ranking de rutas con incidentes se resuelve en MongoDB
 
-**Estado:** propuesta · **Responsables:** Thiago y Mati
+**Estado:** acordada · **Fecha:** 13/10/2026 · **Responsable:** Mati · **Alcance:** MongoDB
 
-El enunciado pide "ranking de rutas con mayor cantidad de incidentes". Los
-incidentes viven en MongoDB con un `envio_id`; el modelo de Neo4j no los incluye.
-Hoy ese requisito **no tiene implementación posible**.
+> **Esta decision reemplaza a una version anterior** que proponia propagar los
+> incidentes a Neo4j y resolver el ranking en Cypher. Al ver el modelo de
+> MongoDB quedo claro que la solucion de Mati es mejor, y se adopta esa.
 
-**Propuesta:** el Outbox propaga cada incidente a Neo4j como
-`(:Incidente {id, tipo, severidad})-[:AFECTA]->(:Envio)`, y el ranking se resuelve
-en Cypher agrupando por el par origen–destino del envío.
+El enunciado pide "ranking de rutas con mayor cantidad de incidentes". Cada
+incidente guarda embebido un **snapshot del contexto del envio** al momento de
+ocurrir:
 
-**Por qué no resolverlo en Mongo** (denormalizando origen y destino dentro del
-documento del incidente, que sería más simple): porque debilita la justificación
-del grafo. Si la consulta más "de grafo" del enunciado se resuelve con una
-agregación de Mongo, en la defensa la pregunta obvia es para qué está Neo4j. La
-tabla del grupo ya asignaba `Incidente` a Neo4j por este motivo.
+```js
+contexto_envio: { cliente_id, origen, destino, pais_origen, pais_destino, ruta }
+db.incidentes.createIndex({ "contexto_envio.ruta": 1 })
+```
 
-**Imprecisión aceptada:** el enunciado liga el incidente al **envío**, no al
-tramo, así que el ranking agrupa por origen–destino del envío y no por tramo
-individual. Ganar precisión exigiría agregar `tramo_id` al incidente, que es un
-supuesto más. Se deja documentado y no se agrega.
+El ranking es un `$group` sobre un campo indexado. Lo mismo resuelve "promedio
+de incidentes por pais / estado / cliente", con los otros indices del snapshot.
 
----
+**Por que se descarto propagarlos a Neo4j:** habria obligado a sincronizar los
+incidentes a un cuarto motor y a mantenerlos consistentes, para contestar lo
+mismo que una agregacion de Mongo contesta sin cruzar bases. El argumento de
+"asi se justifica Neo4j" era debil: el grafo ya se justifica solo con la ruta
+completa de un envio, la red cliente-operador-envio y el historial de
+movimientos de un contenedor (D11).
+
+**Por que un snapshot y no una referencia:** es el patron documental por
+excelencia. El snapshot **no se actualiza** si despues cambia la ruta del envio,
+y eso es intencional: un incidente registra las circunstancias de cuando
+ocurrio, no las actuales. Es la respuesta a la pregunta previsible en la defensa
+("¿y si despues cambia la ruta?").
+
+**Imprecision aceptada:** el enunciado liga el incidente al **envio**, no al
+tramo, asi que "ruta" es el par origen-destino del envio y no el de un tramo
+individual. Ganar precision exigiria agregar `tramo_id` al incidente, que es un
+supuesto mas. Se documenta y no se agrega.
 
 ## D13 — El heartbeat de sensores usa un sorted set
 
@@ -461,3 +474,176 @@ es `guardar` / `actualizar` / `obtener` / `listar_*`.
 `Envio.pasar_a()`. Hoy el servicio le asigna el estado directamente después de
 consultar `puede_asignarse()`. Si aparecen más reglas sobre el ciclo de vida del
 contenedor, conviene darle su propio método de cambio de estado.
+
+---
+
+# Decisiones de la integracion del trabajo del grupo (13/10/2026)
+
+Surgen de revisar el DDL de PostgreSQL (Fran) y los modelos de MongoDB y
+Cassandra (Mati) contra el enunciado y las decisiones anteriores. **Thiago
+aplico estos cambios directamente sobre el trabajo de los dos**; quedan
+registradas aca para que puedan revisarlas.
+
+---
+
+## D19 — Un unico juego de valores, en MAYUSCULAS, en los cinco motores
+
+**Estado:** acordada · **Alcance:** todos los motores y el dominio
+
+El mismo concepto se escribe **identico** en PostgreSQL, MongoDB, Cassandra,
+Neo4j, Redis y el dominio Python: `EN_TRANSITO`, `ALTA`, `ABIERTO`,
+`CARGA_INICIADA`. En MAYUSCULAS y con guion bajo.
+
+**Por que:** antes de unificar, el mismo concepto convivia en tres formas:
+`'EN_TRANSITO'` en los `CHECK` de Postgres, `"abierto"` en los validadores de
+Mongo y `'carga_iniciada'` en Cassandra. Eso obliga al worker del Outbox a
+traducir en cada propagacion, y el dia que alguien se olvida de una traduccion
+el dato entra mal y **ningun motor se queja**: los tres valores son validos en
+su propia base. Es la clase de error que no se detecta hasta que un reporte
+devuelve menos filas de las que deberia.
+
+**Aplicado:** se pasaron a mayusculas todos los `enum` de los validadores de
+MongoDB y los tipos de evento de Cassandra.
+
+**Le cambia el trabajo a:** Umbi (los valores que escriba en Neo4j y Redis siguen
+la misma regla).
+
+---
+
+## D20 — `Lectura` lleva `envio_id` opcional
+
+**Estado:** acordada · **Alcance:** `domain/lectura.py`, Cassandra
+
+La tabla `recorrido_por_contenedor` de Cassandra tiene una columna `envio_id`
+que la entidad `Lectura` no podia completar, porque no existia en el dominio.
+
+**Aplicado:** `Lectura.envio_id: UUID | None = None`.
+
+**Por que opcional:** un contenedor en deposito o en mantenimiento sigue
+reportando lecturas sin estar asignado a ningun envio. Obligarlo a tener uno
+seria modelar una realidad que no existe.
+
+Ademas se agrego la propiedad derivada `Lectura.dia`, que es la clave de
+particion de Cassandra. **Se deriva de `momento` en vez de guardarse**: dos
+fuentes para el mismo dato se terminan contradiciendo.
+
+Y se documento en `LecturaRepository.guardar()` que la implementacion de
+Cassandra escribe en **dos tablas** (`lecturas_por_sensor` y
+`recorrido_por_contenedor`). Es doble escritura a proposito, porque Cassandra no
+hace JOIN y cada consulta necesita su propia tabla.
+
+---
+
+## D21 — Los eventos de Cassandra guardan `ubicacion_id` y el nombre
+
+**Estado:** acordada · **Responsable:** Mati · **Alcance:** Cassandra
+
+Las tablas de eventos guardaban solo `ubicacion_nombre` como texto. Se agrego
+`ubicacion_id uuid` **sin sacar el nombre**.
+
+**Por que los dos:** el `uuid` conserva la identidad compartida entre motores
+(regla comun del grupo) y permite volver desde un evento a la `ubicacion` de
+PostgreSQL o al nodo de Neo4j. Solo con el nombre, ese camino de vuelta no
+existe. El nombre se mantiene denormalizado para mostrar el evento sin tener que
+ir a buscarlo a otra base, que es justamente para lo que sirve Cassandra.
+
+---
+
+## D22 — `Conversacion` es una entidad nueva
+
+**Estado:** acordada · **Responsable:** Mati · **Alcance:** MongoDB
+
+El enunciado modela `Mensaje` con `Destinatario` y un `Tipo` (privado/grupal).
+El modelo implementado agrega una coleccion `conversaciones`, y los mensajes
+referencian `conversacion_id`.
+
+**Por que se acepta:** es el modelo estandar de chat. Hace que "historial de
+conversaciones" sea una consulta indexada por conversacion en vez de un filtro
+por pares de usuarios, y permite declarar un **indice unico parcial** sobre
+`clave_participantes` que garantiza que no existan dos chats privados entre las
+mismas dos personas. Los mensajes van referenciados y no embebidos porque crecen
+sin limite y un documento de MongoDB no puede pasar los 16 MB.
+
+**Es un supuesto a documentar en el informe:** es una entidad que no esta en el
+enunciado. Tambien se enriquecio `grupos_trabajo.integrantes`, que paso de una
+lista de ids a objetos con `rol` y `desde`.
+
+---
+
+## D23 — Los datos semilla comparten los ids de PostgreSQL
+
+**Estado:** acordada · **Alcance:** todos los scripts de datos de prueba
+
+PostgreSQL es el **dueno** de cliente, usuario, envio, contenedor, sensor,
+ubicacion, operador y proveedor. Los datos semilla de los otros motores usan
+**exactamente los UUID de `scripts/postgres/02_datos_prueba.sql`**.
+
+**Por que:** antes, los seeds de Mongo y Cassandra usaban un esquema propio
+(`aaaaaaaa-...`, `cccccccc-...`) distinto del de Postgres (`a0000000-...`,
+`20000000-...`). Con ids que no coinciden **no se puede demostrar nada de punta
+a punta**: un incidente de Mongo apuntaba a un envio que no existia en Postgres.
+Para la defensa hay que poder seguir un mismo envio por las cinco bases.
+
+**Las entidades propias de MongoDB** (conversacion, mensaje, incidente, alerta,
+reporte, prediccion) conservan sus propios ids: Mongo es su dueno y nadie mas
+los genera.
+
+---
+
+## D24 — Correcciones al esquema de PostgreSQL
+
+**Estado:** acordada · **Responsable:** Fran (aplicadas por Thiago)
+
+El DDL cumplia las siete decisiones que lo tocaban y replicaba los invariantes
+del dominio como `CHECK`, incluida la bicondicional de estado y fecha de llegada
+de D16. Se corrigieron ocho puntos:
+
+1. **Se agrego la tabla `rol`.** El enunciado la lista como entidad propia (ID,
+   Descripcion, Nivel de permisos) y pide "administracion de usuarios y roles".
+   Estaba resuelta como una columna `VARCHAR` con `CHECK` en `usuario`, con lo
+   cual no habia donde guardar la descripcion ni el nivel, y crear un rol nuevo
+   exigia un `ALTER TABLE`.
+2. **`usuario`** recupera `cliente_id` (NULL para los usuarios internos) y
+   `apellido`, los dos listados en el enunciado, y `rol` pasa a `rol_id` con FK.
+3. **`activo BOOLEAN` pasa a `estado VARCHAR` con `CHECK`** en cliente, operador,
+   proveedor, ubicacion, vehiculo, tarifa y usuario (D1). La baja logica es
+   `estado = 'INACTIVO'`.
+4. **`pais`** se agrega a cliente, operador y proveedor (el enunciado lo lista).
+5. **`operador.nombre` pasa a `razon_social`**, para unificar con cliente y
+   proveedor.
+6. **`vehiculo.patente` pasa a `identificacion`**: un buque se identifica por
+   numero IMO y un avion por matricula; ninguno tiene patente.
+7. **`factura`, `pago` y `cuenta_corriente` pasan a `titular_tipo` +
+   `titular_id`** (CLIENTE / PROVEEDOR / OPERADOR), segun el supuesto 4, que se
+   apoya en la pagina 1 del enunciado: *"facturacion, pagos y cuentas corrientes
+   de los clientes, proveedores y operadores logisticos"*. Estaban limitadas a
+   `cliente_id`, lo que hacia **imposible** ese requisito. `pago` ya no lleva
+   titular: se deriva de su factura.
+8. **`contenedor.tipo`** recibe su `CHECK`, como el resto de los campos `tipo`.
+
+**Costo asumido en el punto 7:** `titular_id` es una referencia polimorfica, asi
+que no admite una FK. La existencia del titular la valida el servicio. Es el
+precio de cumplir el requisito con una tabla en vez de tres.
+
+**Se conservan dos mejoras** que el DDL traia sin acordar y que son mejores que
+el modelo original: `tarifa` con `costo_base` / `costo_por_km` / vigencia por
+fechas, y `sensor.intervalo_reporte_segundos`, que es justo el dato que faltaba
+para que la deteccion de sensores inactivos (D13) sepa a partir de cuando el
+silencio es una anomalia.
+
+---
+
+## D25 — PENDIENTE: los umbrales configurados no tienen donde vivir
+
+**Estado:** ABIERTA · **Responsable:** Mati
+
+`alertas.detalle.umbral` guarda el umbral **que se violo**, despues del hecho.
+Pero "deteccion de anomalias de temperatura" necesita el umbral **configurado de
+antemano**, y no existe en ninguna coleccion ni tabla.
+
+Las dos salidas son: una constante en el codigo (defendible solo si se declara
+como simplificacion) o una coleccion de configuracion en MongoDB por `tipo` de
+contenedor, que es lo realista: un `REEFER_40` con pescado y un `DRY_20` con
+electronica no toleran lo mismo.
+
+**Sigue sin decidir.** Es el unico hueco funcional abierto del enunciado.

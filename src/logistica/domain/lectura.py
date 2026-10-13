@@ -15,3 +15,16 @@ class Lectura:
     latitud: float
     longitud: float
     bateria: int
+    # Opcional porque un contenedor puede estar reportando sin estar asignado a
+    # ningun envio (en deposito, en mantenimiento). Lo necesita la tabla
+    # recorrido_por_contenedor de Cassandra (D20).
+    envio_id: UUID | None = None
+
+    @property
+    def dia(self) -> str:
+        """Clave de particion de Cassandra: un bucket por sensor y por dia.
+
+        Se deriva de `momento` en vez de guardarse: dos fuentes para el mismo
+        dato se terminan contradiciendo.
+        """
+        return self.momento.strftime("%Y-%m-%d")

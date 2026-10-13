@@ -8,6 +8,8 @@
 //    entidades de otras bases (envio_id, contenedor_id, sensor_id, cliente_id,
 //    usuario_id). MongoDB NO es dueno de esas entidades: solo las referencia.
 //  - Fechas en UTC (tipo date).
+//  - Valores de enum en MAYUSCULAS, iguales en los cinco motores (D19):
+//    el mismo estado se escribe igual en Postgres, Mongo, Cassandra y el dominio.
 //  - IMPORTANTE en la app: configurar el driver con UUID estandar
 //    (Python: uuidRepresentation="standard" | Java: UuidRepresentation.STANDARD),
 //    si no los UUID se guardan con otro subtipo y no coinciden con las otras bases.
@@ -44,9 +46,9 @@ crearColeccion("incidentes", {
     _id: { bsonType: "binData" },
     envio_id: { bsonType: "binData" },
     contenedor_id: { bsonType: ["binData", "null"] },
-    tipo: { enum: ["demora", "dano_carga", "temperatura", "robo", "aduana", "accidente", "otro"] },
-    severidad: { enum: ["baja", "media", "alta", "critica"] },
-    estado: { enum: ["abierto", "en_analisis", "resuelto", "cerrado"] },
+    tipo: { enum: ["DEMORA", "DANO_CARGA", "TEMPERATURA", "ROBO", "ADUANA", "ACCIDENTE", "OTRO"] },
+    severidad: { enum: ["BAJA", "MEDIA", "ALTA", "CRITICA"] },
+    estado: { enum: ["ABIERTO", "EN_ANALISIS", "RESUELTO", "CERRADO"] },
     descripcion: { bsonType: "string", minLength: 1 },
     fecha: { bsonType: "date" },
     contexto_envio: {
@@ -58,7 +60,7 @@ crearColeccion("incidentes", {
         destino: { bsonType: "string" },
         pais_origen: { bsonType: "string" },
         pais_destino: { bsonType: "string" },
-        ruta: { bsonType: "string" }            // ej: "BUE->HAM"
+        ruta: { bsonType: "string" }            // ej: "ARBUE->NLRTM" (codigos LOCODE de ubicacion)
       }
     },
     historial_estados: {
@@ -88,13 +90,13 @@ crearColeccion("alertas", {
   required: ["_id", "tipo", "sensor_id", "estado", "severidad", "fecha"],
   properties: {
     _id: { bsonType: "binData" },
-    tipo: { enum: ["temperatura", "humedad", "vibracion", "bateria", "inactividad", "geocerca"] },
+    tipo: { enum: ["TEMPERATURA", "HUMEDAD", "VIBRACION", "BATERIA", "INACTIVIDAD", "GEOCERCA"] },
     sensor_id: { bsonType: "binData" },
     contenedor_id: { bsonType: ["binData", "null"] },
     envio_id: { bsonType: ["binData", "null"] },
     evento_id: { bsonType: ["binData", "null"] },
-    estado: { enum: ["abierta", "reconocida", "cerrada"] },
-    severidad: { enum: ["baja", "media", "alta", "critica"] },
+    estado: { enum: ["ABIERTA", "RECONOCIDA", "CERRADA"] },
+    severidad: { enum: ["BAJA", "MEDIA", "ALTA", "CRITICA"] },
     fecha: { bsonType: "date" },
     detalle: {                                  // valor leido vs umbral que se violo
       bsonType: "object",
@@ -119,7 +121,7 @@ crearColeccion("conversaciones", {
   required: ["_id", "tipo", "participantes", "creada_en"],
   properties: {
     _id: { bsonType: "binData" },
-    tipo: { enum: ["privada", "grupal"] },
+    tipo: { enum: ["PRIVADA", "GRUPAL"] },
     participantes: { bsonType: "array", minItems: 2, items: { bsonType: "binData" } },
     grupo_id: { bsonType: ["binData", "null"] },
     clave_participantes: { bsonType: "string" },
@@ -128,7 +130,7 @@ crearColeccion("conversaciones", {
   }
 });
 db.conversaciones.createIndex({ participantes: 1, "ultimo_mensaje.fecha": -1 });   // multiclave: "mis conversaciones"
-db.conversaciones.createIndex({ clave_participantes: 1 }, { unique: true, partialFilterExpression: { tipo: "privada" } });
+db.conversaciones.createIndex({ clave_participantes: 1 }, { unique: true, partialFilterExpression: { tipo: "PRIVADA" } });
 
 crearColeccion("mensajes", {
   bsonType: "object",
@@ -175,12 +177,12 @@ crearColeccion("reportes", {
   properties: {
     _id: { bsonType: "binData" },
     usuario_id: { bsonType: "binData" },
-    tipo: { enum: ["envios_por_pais", "envios_por_estado", "envios_por_cliente", "envios_demorados",
-                   "incidentes_abiertos", "tiempos_por_cliente", "incidentes_promedio",
-                   "tiempos_promedio_entrega", "costos_por_transporte"] },
+    tipo: { enum: ["ENVIOS_POR_PAIS", "ENVIOS_POR_ESTADO", "ENVIOS_POR_CLIENTE", "ENVIOS_DEMORADOS",
+                   "INCIDENTES_ABIERTOS", "TIEMPOS_POR_CLIENTE", "INCIDENTES_PROMEDIO",
+                   "TIEMPOS_PROMEDIO_ENTREGA", "COSTOS_POR_TRANSPORTE"] },
     parametros: { bsonType: "object" },
-    formato: { enum: ["pdf", "csv", "xlsx"] },
-    estado: { enum: ["solicitado", "generando", "completado", "error"] },
+    formato: { enum: ["PDF", "CSV", "XLSX"] },
+    estado: { enum: ["SOLICITADO", "GENERANDO", "COMPLETADO", "ERROR"] },
     fecha_solicitud: { bsonType: "date" },
     fecha_generacion: { bsonType: ["date", "null"] },
     resultado: { bsonType: ["object", "null"] }
@@ -226,36 +228,36 @@ db.predicciones_riesgo.createIndex({ dia_calculo: 1, probabilidad_demora: -1 });
 // ---------------------------------------------------------------------
 // DATOS DE PRUEBA minimos (upsert: se puede correr varias veces)
 // ---------------------------------------------------------------------
-var ID_ENVIO = UUID("aaaaaaaa-0000-4000-8000-000000000001");
-var ID_CLIENTE = UUID("cccccccc-0000-4000-8000-000000000001");
-var ID_SENSOR = UUID("11111111-1111-4111-8111-111111111111");
-var ID_CONT = UUID("dddddddd-0000-4000-8000-000000000001");
-var ID_USR_A = UUID("eeeeeeee-0000-4000-8000-00000000000a");
-var ID_USR_B = UUID("eeeeeeee-0000-4000-8000-00000000000b");
+var ID_ENVIO = UUID("a0000000-0000-0000-0000-000000000001");
+var ID_CLIENTE = UUID("20000000-0000-0000-0000-000000000001");
+var ID_SENSOR = UUID("80000000-0000-0000-0000-000000000001");
+var ID_CONT = UUID("70000000-0000-0000-0000-000000000001");
+var ID_USR_A = UUID("10000000-0000-0000-0000-000000000001");
+var ID_USR_B = UUID("10000000-0000-0000-0000-000000000002");
 var ID_CONV = UUID("ffffffff-0000-4000-8000-000000000001");
 
 db.incidentes.replaceOne({ _id: UUID("b0000000-0000-4000-8000-000000000001") }, {
   _id: UUID("b0000000-0000-4000-8000-000000000001"), envio_id: ID_ENVIO, contenedor_id: ID_CONT,
-  tipo: "demora", severidad: "media", estado: "abierto", descripcion: "Retraso en aduana", fecha: new Date(),
-  contexto_envio: { cliente_id: ID_CLIENTE, origen: "BUE", destino: "HAM", pais_origen: "Argentina", pais_destino: "Alemania", ruta: "BUE->HAM" },
-  historial_estados: [{ estado: "abierto", fecha: new Date(), usuario_id: ID_USR_A }]
+  tipo: "DEMORA", severidad: "MEDIA", estado: "ABIERTO", descripcion: "Retraso en aduana", fecha: new Date(),
+  contexto_envio: { cliente_id: ID_CLIENTE, origen: "ARBUE", destino: "NLRTM", pais_origen: "Argentina", pais_destino: "Holanda", ruta: "ARBUE->NLRTM" },
+  historial_estados: [{ estado: "ABIERTO", fecha: new Date(), usuario_id: ID_USR_A }]
 }, { upsert: true });
 
 db.incidentes.replaceOne({ _id: UUID("b0000000-0000-4000-8000-000000000002") }, {
   _id: UUID("b0000000-0000-4000-8000-000000000002"), envio_id: ID_ENVIO, contenedor_id: null,
-  tipo: "temperatura", severidad: "alta", estado: "cerrado", descripcion: "Pico de temperatura", fecha: new Date(),
-  contexto_envio: { cliente_id: ID_CLIENTE, origen: "BUE", destino: "HAM", pais_origen: "Argentina", pais_destino: "Alemania", ruta: "BUE->HAM" }
+  tipo: "TEMPERATURA", severidad: "ALTA", estado: "CERRADO", descripcion: "Pico de temperatura", fecha: new Date(),
+  contexto_envio: { cliente_id: ID_CLIENTE, origen: "ARBUE", destino: "NLRTM", pais_origen: "Argentina", pais_destino: "Holanda", ruta: "ARBUE->NLRTM" }
 }, { upsert: true });
 
 db.alertas.replaceOne({ _id: UUID("a0000000-0000-4000-8000-000000000001") }, {
-  _id: UUID("a0000000-0000-4000-8000-000000000001"), tipo: "temperatura", sensor_id: ID_SENSOR, contenedor_id: ID_CONT,
-  envio_id: ID_ENVIO, estado: "abierta", severidad: "alta", fecha: new Date(),
+  _id: UUID("a0000000-0000-4000-8000-000000000001"), tipo: "TEMPERATURA", sensor_id: ID_SENSOR, contenedor_id: ID_CONT,
+  envio_id: ID_ENVIO, estado: "ABIERTA", severidad: "ALTA", fecha: new Date(),
   detalle: { valor: 12.5, umbral: 8.0, momento_lectura: new Date() }
 }, { upsert: true });
 
 db.conversaciones.replaceOne({ _id: ID_CONV }, {
-  _id: ID_CONV, tipo: "privada", participantes: [ID_USR_A, ID_USR_B],
-  clave_participantes: "eeeeeeee-0000-4000-8000-00000000000a:eeeeeeee-0000-4000-8000-00000000000b",
+  _id: ID_CONV, tipo: "PRIVADA", participantes: [ID_USR_A, ID_USR_B],
+  clave_participantes: "10000000-0000-0000-0000-000000000001:10000000-0000-0000-0000-000000000002",
   creada_en: new Date(), ultimo_mensaje: { fecha: new Date(), resumen: "Hola" }
 }, { upsert: true });
 
@@ -267,9 +269,9 @@ db.mensajes.replaceOne({ _id: UUID("a1000000-0000-4000-8000-000000000001") }, {
 // ---------------------------------------------------------------------
 // CONSULTAS DE VERIFICACION (descomentar para probar)
 // ---------------------------------------------------------------------
-// db.incidentes.find({ estado: "abierto" }).sort({ fecha: -1 })
+// db.incidentes.find({ estado: "ABIERTO" }).sort({ fecha: -1 })
 // db.incidentes.aggregate([ { $group: { _id: "$contexto_envio.pais_origen", total: { $sum: 1 } } } ])
 // db.incidentes.aggregate([ { $group: { _id: "$contexto_envio.ruta", total: { $sum: 1 } } }, { $sort: { total: -1 } }, { $limit: 5 } ])
 // db.mensajes.find({ conversacion_id: ID_CONV }).sort({ fecha: -1 }).limit(20)
-// db.alertas.find({ sensor_id: ID_SENSOR, estado: "abierta" })
-// db.incidentes.find({ estado: "abierto" }).explain("executionStats")   // debe decir IXSCAN
+// db.alertas.find({ sensor_id: ID_SENSOR, estado: "ABIERTA" })
+// db.incidentes.find({ estado: "ABIERTO" }).explain("executionStats")   // debe decir IXSCAN
