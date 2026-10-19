@@ -9,8 +9,9 @@ Los diagramas representan los modelos iniciales propuestos.
 ```mermaid
 flowchart TD
     C[Cliente] -->|SOLICITA| E[Envio]
-    O[Operador] -->|GESTIONA| E
-    P[Proveedor] -->|PARTICIPA_EN| E
+    E -->|TIENE_TRAMO| T[Tramo]
+    T -->|UTILIZA| V[Vehiculo]
+    O[Operador] -->|OPERA| V
     E -->|INCLUYE| CO[Contenedor]
     E -->|ORIGEN| UO[Ubicacion de origen]
     E -->|DESTINO| UD[Ubicacion de destino]
@@ -58,19 +59,19 @@ La duración del TTL queda pendiente de acordar con el grupo.
 
 ```mermaid
 flowchart TD
-    S[Señal recibida] --> R["Actualizar sensor:actividad:UUID y renovar TTL"]
-    P[Sensor que debe reportar en PostgreSQL] --> C[Consultar clave en Redis]
-    R --> C
-    C -->|Existe| A[Actividad reciente registrada]
-    C -->|No existe| V[Validar inicio de monitoreo y primera señal]
-    V --> D[Determinar si corresponde marcarlo inactivo]
+    S[Señal recibida] --> Z["Actualizar score en sensores:heartbeat"]
+    J[Proceso periódico] --> P["Consultar sensores monitoreados en PostgreSQL"]
+    P --> C[Consultar últimos reportes en Redis]
+    Z --> C
+    C --> R{¿Tiene reporte registrado?}
+    R -->|Sí| E[Evaluar atraso según intervalo del sensor]
+    R -->|No| I[Evaluar período inicial o información desconocida]
+    E --> D[Determinar actividad o inactividad]
 ```
 
-El valor de la clave contiene la fecha y hora de recepción
-de la última señal.
+El score conserva el timestamp de recepción del último reporte.
+El Sorted Set no tiene TTL.
 
-La ausencia de la clave requiere comprobar el contexto del
-sensor antes de clasificarlo como inactivo. Un error de conexión
-con Redis no debe interpretarse como ausencia de actividad.
-
-El TTL y el período inicial de espera se acordarán con el grupo.
+La detección considera el intervalo configurado de cada sensor.
+Los errores de Redis se tratan como fallas de consulta,
+no como evidencia de inactividad.
