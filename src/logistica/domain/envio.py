@@ -61,9 +61,9 @@ class Envio:
     fecha_llegada_real: datetime | None = None
 
     def __post_init__(self) -> None:
-        self._validar()
+        self.validar()
 
-    def _validar(self) -> None:
+    def validar(self) -> None:
         """Invariantes que se verifican con los campos del objeto, sin tocar
         ninguna base. Lo que necesite consultar algo va en el servicio."""
         if self.origen_id == self.destino_id:
@@ -96,7 +96,7 @@ class Envio:
         if nuevo is EstadoEnvio.ENTREGADO:
             self.fecha_llegada_real = momento
         try:
-            self._validar()
+            self.validar()
         except ValidacionError:
             self.estado, self.fecha_llegada_real = anterior, fecha_anterior
             raise

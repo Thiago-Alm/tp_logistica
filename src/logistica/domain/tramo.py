@@ -31,9 +31,9 @@ class Tramo:
     fecha_llegada_real: datetime | None = None
 
     def __post_init__(self) -> None:
-        self._validar()
+        self.validar()
 
-    def _validar(self) -> None:
+    def validar(self) -> None:
         """Invariantes que se verifican con los campos del objeto, sin tocar
         ninguna base. Que envio_id o vehiculo_id existan de verdad se valida en
         el servicio, porque eso requiere consultar (D3)."""
@@ -65,7 +65,7 @@ class Tramo:
         anterior = self.fecha_llegada_real
         self.fecha_llegada_real = fecha_llegada_real
         try:
-            self._validar()
+            self.validar()
         except ValidacionError:
             self.fecha_llegada_real = anterior
             raise

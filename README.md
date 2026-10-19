@@ -9,7 +9,11 @@ Aplicacion de consola en Python con 5 motores: PostgreSQL, MongoDB, Neo4j, Redis
 3. Instalar: `pip install -r requirements.txt` y luego `pip install -e .`
 4. Levantar las bases: `docker compose up -d`
 5. Verificar que las 5 bases respondan: `python scripts/chequear_conexiones.py`
-6. Correr los tests: `pytest`
+6. Crear el esquema y los datos de prueba: `python scripts/aplicar_esquema.py`
+7. Correr los tests: `pytest`
+8. Arrancar la aplicacion: `python -m logistica`
+
+La contrasena de los cuatro usuarios de prueba es `demo1234`.
 
 ### Si el chequeo falla
 Revisar `docker compose ps`. Ojo con un detalle que ya nos paso: un contenedor
@@ -29,7 +33,7 @@ contenedor y actualizar el `.env`.
 - `src/logistica/services/`: casos de uso.
 - `src/logistica/sync/`: Outbox, worker de sincronizacion y chequeo de consistencia.
 - `src/logistica/jobs/`: procesos periodicos.
-- `src/logistica/cli/`: menus de la consola.
+- `src/logistica/cli/`: menus de la consola. Se arranca con `python -m logistica`.
 - `src/logistica/container.py`: decide que implementacion usa cada interfaz.
 - `tests/` y `docs/`.
 

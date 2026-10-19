@@ -36,9 +36,9 @@ class Contenedor:
     estado: EstadoContenedor
 
     def __post_init__(self) -> None:
-        self._validar()
+        self.validar()
 
-    def _validar(self) -> None:
+    def validar(self) -> None:
         if len(self.codigo_iso) != LARGO_CODIGO_ISO:
             raise ValidacionError(
                 f"codigo_iso debe tener {LARGO_CODIGO_ISO} caracteres "

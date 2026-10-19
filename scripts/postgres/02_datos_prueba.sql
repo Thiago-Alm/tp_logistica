@@ -37,13 +37,16 @@ INSERT INTO cliente (id, cuit, razon_social, email, telefono, direccion, pais, e
 
 -- ----------------------------------------------------------------------------
 -- 3. USUARIOS (prefijo 1)
+-- La contrasena de los cuatro usuarios semilla es: demo1234
+-- Los hashes son PBKDF2-HMAC-SHA256 reales, generados con logistica.seguridad,
+-- asi que la autenticacion de la aplicacion funciona con estos datos.
 -- Los tres primeros son internos: cliente_id NULL. El cuarto es de un cliente.
 -- ----------------------------------------------------------------------------
 INSERT INTO usuario (id, cliente_id, rol_id, nombre, apellido, email, password_hash, estado, fecha_registro) VALUES
-    ('10000000-0000-0000-0000-000000000001', NULL, '00000000-0000-0000-0000-000000000001', 'Admin', 'Sistema', 'admin@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r4dm1nS1st3m4', 'ACTIVO', '2026-01-01 08:00:00+00'),
-    ('10000000-0000-0000-0000-000000000002', NULL, '00000000-0000-0000-0000-000000000002', 'Carlos', 'Operaciones', 'carlos.ops@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r0p3r4d0rC4rl0s', 'ACTIVO', '2026-01-05 09:30:00+00'),
-    ('10000000-0000-0000-0000-000000000003', NULL, '00000000-0000-0000-0000-000000000003', 'Lucia', 'Auditora', 'lucia.audit@logistica.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0r4ud1t0rLuc14', 'ACTIVO', '2026-01-10 10:15:00+00'),
-    ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'Mariana', 'Fernandez', 'mariana@agroglobal.com', '$2b$12$eX4mPl3h4shP4ssw0rdF0rCl13nt3M4r14n4', 'ACTIVO', '2026-02-01 11:00:00+00');
+    ('10000000-0000-0000-0000-000000000001', NULL, '00000000-0000-0000-0000-000000000001', 'Admin', 'Sistema', 'admin@logistica.com', 'pbkdf2_sha256$200000$fbe3c425f8bdfded25258d30c6599143$f6b3231a6a0efbab2b26c5578c00dc7ac5016046663f05aa858bccdb95335bdc', 'ACTIVO', '2026-01-01 08:00:00+00'),
+    ('10000000-0000-0000-0000-000000000002', NULL, '00000000-0000-0000-0000-000000000002', 'Carlos', 'Operaciones', 'carlos.ops@logistica.com', 'pbkdf2_sha256$200000$d91f6fed176e9a67c4d130ac48f06b12$72099c59fcfcc7f81a103928a221fd7a8ab46ec1d99b1d7260da93ac8bce5fd6', 'ACTIVO', '2026-01-05 09:30:00+00'),
+    ('10000000-0000-0000-0000-000000000003', NULL, '00000000-0000-0000-0000-000000000003', 'Lucia', 'Auditora', 'lucia.audit@logistica.com', 'pbkdf2_sha256$200000$0c6d26784872006ccb01a21901f43db0$4847c21aa0491d96fdb524785415e2df7b707b4da8fb61a9b9a9e4ddc5f0ccd4', 'ACTIVO', '2026-01-10 10:15:00+00'),
+    ('10000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000004', 'Mariana', 'Fernandez', 'mariana@agroglobal.com', 'pbkdf2_sha256$200000$fe66b92694ad3a78877e801131bce5df$14565c9afd076ef7cf325d3215e616bf872eda85dba173d4626297b2998cb262', 'ACTIVO', '2026-02-01 11:00:00+00');
 
 -- ----------------------------------------------------------------------------
 -- 4. OPERADORES LOGÍSTICOS (prefijo 3 - D11)

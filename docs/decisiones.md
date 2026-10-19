@@ -647,3 +647,149 @@ contenedor, que es lo realista: un `REEFER_40` con pescado y un `DRY_20` con
 electronica no toleran lo mismo.
 
 **Sigue sin decidir.** Es el unico hueco funcional abierto del enunciado.
+
+---
+
+# Decisiones de la primera rebanada vertical (19/10/2026)
+
+Salen de implementar Cliente, Rol y Usuario de punta a punta: dominio,
+repositorio, PostgreSQL, servicio y consola. Es la primera parte de la
+aplicacion que realmente corre contra una base.
+
+---
+
+## D26 — La baja de clientes y usuarios es logica
+
+**Estado:** acordada · **Alcance:** dominio, servicios, PostgreSQL
+
+El enunciado pide "alta, **baja** y modificacion de clientes". La baja **no
+borra la fila**: pasa `estado` a `INACTIVO`.
+
+**Por que:** un cliente borrado se lleva puestos sus envios, sus facturas y su
+cuenta corriente, que lo referencian con `FOREIGN KEY ... ON DELETE RESTRICT`.
+Un borrado fisico o fallaria por la FK o, peor, obligaria a borrar en cascada el
+historial. Ademas los reportes analiticos ("tiempos de envio por cliente",
+"promedio de incidentes por cliente") necesitan los datos de clientes que ya no
+operan.
+
+**Consecuencia:** `ClienteRepository` no tiene `eliminar()`. La baja es un
+cambio de estado, o sea un `actualizar()` como cualquier otro (D18).
+`listar(solo_activos=True)` filtra los dados de baja.
+
+**Relacion con la sincronizacion:** esto es lo que el plan del grupo llamaba
+"soft delete". Al propagar a Neo4j y Mongo, la baja viaja como un cambio de
+propiedad y no como un `DELETE`, con lo cual el grafo conserva las relaciones
+historicas del cliente.
+
+---
+
+## D27 — Las contrasenas se hashean con PBKDF2-HMAC-SHA256
+
+**Estado:** acordada · **Alcance:** `seguridad.py`, `usuario`
+
+El enunciado pide "Contrasena encriptada". Se usa PBKDF2-HMAC-SHA256 con salt
+aleatorio de 16 bytes y 200.000 iteraciones, de `hashlib` (biblioteca estandar).
+
+Formato guardado: `pbkdf2_sha256$<iteraciones>$<salt_hex>$<hash_hex>`.
+
+**Por que no un SHA256 pelado:** un hash comun esta disenado para ser **rapido**,
+que es justo lo que no se quiere. PBKDF2 repite el calculo cientos de miles de
+veces, asi que probar un diccionario entero cuesta tiempo real.
+
+**Por que el salt:** sin salt, dos usuarios con la misma contrasena guardan el
+mismo hash, y una tabla precalculada los rompe a los dos de una. Con salt
+aleatorio por usuario, cada hash es unico (hay un test que lo verifica).
+
+**Por que `hmac.compare_digest` y no `==`:** un `==` corta en el primer byte
+distinto, y medir cuanto tarda permite adivinar el hash byte a byte.
+`compare_digest` tarda lo mismo siempre.
+
+**Por que de la biblioteca estandar y no bcrypt o argon2:** para no sumar otra
+dependencia. En un sistema real irian argon2 o bcrypt, y eso se aclara en el
+informe.
+
+**Consecuencia en los datos de prueba:** los hashes semilla eran cadenas de
+ejemplo con pinta de bcrypt que no verificaban con nada. Se reemplazaron por
+hashes PBKDF2 reales. **La contrasena de los cuatro usuarios semilla es
+`demo1234`**, y la autenticacion de la aplicacion funciona con ellos.
+
+**Nota para la defensa:** `autenticar()` devuelve el **mismo** mensaje de error
+para "ese email no existe" y para "contrasena incorrecta". Distinguirlos le
+confirma a un atacante que un email esta registrado. Hay un test que compara los
+dos mensajes.
+
+---
+
+## D28 — La transaccion se maneja con Unit of Work
+
+**Estado:** acordada · **Alcance:** `repositories/unidad_de_trabajo.py` y su
+implementacion en PostgreSQL
+
+Los repositorios **no confirman** por su cuenta. Se agrupan en una
+`UnidadDeTrabajo` que abre una conexion, se la presta a todos y confirma una
+sola vez:
+
+```python
+with self._uow as uow:
+    if uow.usuarios.obtener_por_email(email) is not None:
+        raise ConflictoDeDatos(...)
+    uow.usuarios.guardar(usuario)
+    uow.commit()
+```
+
+**Por que:** es lo que hace real la justificacion de PostgreSQL de la tabla
+PROCESOS del grupo: *"Facturacion, pagos y cierre mensual de cuentas →
+transacciones: o se hace todo o nada"*. Si cada repositorio confirmara por su
+lado, una facturacion a medias dejaria la factura escrita y la cuenta corriente
+sin actualizar, y no habria forma de deshacerlo.
+
+**El detalle que lo hace funcionar:** los tres repositorios comparten **la misma
+conexion**. Con una conexion por repositorio, el commit de uno no arrastraria al
+otro y la atomicidad seria una ilusion.
+
+**Salir sin commit deshace todo.** El `__exit__` llama siempre a `rollback()`:
+si ya hubo commit no queda nada que deshacer, y si el bloque se corto por una
+excepcion (o alguien se olvido del commit) no queda nada escrito a medias. Hay
+un test de integracion que lo verifica: un alta de usuario con un rol
+inexistente no deja rastro.
+
+---
+
+## D29 — Los errores de psycopg se traducen a errores del dominio
+
+**Estado:** acordada · **Alcance:** `infrastructure/postgres/conexion.py`
+
+Un decorador `@traducir_errores` envuelve cada metodo de repositorio y convierte:
+
+| Error de PostgreSQL | Error de la aplicacion |
+|---|---|
+| `UniqueViolation` | `ConflictoDeDatos` |
+| `ForeignKeyViolation` | `ValidacionError` |
+| `CheckViolation` | `ValidacionError` |
+| cualquier otro `psycopg.Error` | `ErrorDePersistencia` |
+
+**Por que:** las capas de arriba no tienen por que saber que existe psycopg. Si
+manana una entidad se mudara de motor, los `except` del servicio y de la consola
+seguirian valiendo sin tocar una linea. Es el mismo principio de D2: la
+infraestructura no se filtra hacia arriba.
+
+Ademas cada traduccion deja un registro en el log con el nombre de la
+restriccion violada, que dice mucho mas que el mensaje crudo de Postgres. Eso
+cubre "manejo o control de errores" y "registro de logs" de las restricciones
+tecnicas del enunciado.
+
+---
+
+## D30 — El esquema se aplica con un script, no solo con docker-compose
+
+**Estado:** acordada · **Alcance:** `scripts/aplicar_esquema.py`
+
+`docker-compose.yml` monta `scripts/postgres/` en
+`/docker-entrypoint-initdb.d`, pero esa carpeta **solo se ejecuta la primera vez
+que se crea el volumen de datos**. Como el contenedor de Postgres se levanto
+antes de que los scripts existieran, el volumen ya estaba creado y los scripts
+no corrieron nunca: la base quedo vacia sin que nadie se enterara.
+
+`python scripts/aplicar_esquema.py` crea el esquema y carga los datos semilla;
+con `--reiniciar` borra todo y lo rehace. Es idempotente y sirve tanto para
+montar el entorno de cero como para dejarlo limpio antes de la defensa.
