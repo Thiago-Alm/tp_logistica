@@ -1,0 +1,47 @@
+[
+  {
+    "id": "fa48079a-8a50-4874-83e8-7d7aea6ef4d4",
+    "contenedor_id": "f526c497-60cb-47ed-8bf5-2bb93b3912a2",
+    "numero_serie": "TST-SENSOR-TSTU0000001",
+    "modelo": "MULTI-PRUEBA",
+    "tipo": "MULTISENSOR",
+    "intervalo_reporte_segundos": 60,
+    "estado": "ACTIVO"
+  },
+  {
+    "id": "6f95fac3-773f-4514-b8f5-83eb8b2f1833",
+    "contenedor_id": "bb1650e2-667a-4107-b891-58f0f5c4a58f",
+    "numero_serie": "TST-SENSOR-TSTU0000002",
+    "modelo": "MULTI-PRUEBA",
+    "tipo": "MULTISENSOR",
+    "intervalo_reporte_segundos": 60,
+    "estado": "ACTIVO"
+  },
+  {
+    "id": "6985bf62-86e8-4e97-8847-cffe56a29088",
+    "contenedor_id": "d4e8e6f0-875f-4ab8-9fbb-97ac5643f9b6",
+    "numero_serie": "TST-SENSOR-TSTU0000003",
+    "modelo": "MULTI-PRUEBA",
+    "tipo": "MULTISENSOR",
+    "intervalo_reporte_segundos": 60,
+    "estado": "ACTIVO"
+  },
+  {
+    "id": "65903cb4-4e90-4351-bb48-90fe5b2c39e5",
+    "contenedor_id": "038a481e-5b02-4b18-bd36-493e6fbeb675",
+    "numero_serie": "TST-SENSOR-TSTU0000004",
+    "modelo": "MULTI-PRUEBA",
+    "tipo": "MULTISENSOR",
+    "intervalo_reporte_segundos": 60,
+    "estado": "ACTIVO"
+  },
+  {
+    "id": "8da952fb-154c-463f-990f-52382aa45b11",
+    "contenedor_id": "46775d2f-53c9-4dc2-b09e-bb95b867aac8",
+    "numero_serie": "TST-SENSOR-TSTU0000005",
+    "modelo": "MULTI-PRUEBA",
+    "tipo": "MULTISENSOR",
+    "intervalo_reporte_segundos": 60,
+    "estado": "ACTIVO"
+  }
+]

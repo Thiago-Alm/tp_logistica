@@ -39,3 +39,27 @@ que ya existen en PostgreSQL.
 
 Ampliar el generador con las entidades relacionadas y los escenarios
 necesarios para probar el sistema completo.
+
+## Sensores de prueba
+
+El generador crea un sensor por cada contenedor del lote.
+Cada sensor conserva el UUID de su contenedor como `contenedor_id`.
+
+Los sensores se guardan en `scripts/datos_generados/sensores.json`.
+Si los archivos del lote ya existen, el generador los conserva.
+
+Para generar los datos:
+
+```bash
+python scripts/generar_datos.py
+```
+
+Primero se deben cargar los contenedores y después los sensores:
+
+```bash
+python scripts/cargar_contenedores.py
+python scripts/cargar_sensores.py
+```
+
+Validación realizada: la primera carga insertó 5 sensores.
+La segunda insertó 0, sin duplicar los registros existentes.

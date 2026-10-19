@@ -25,16 +25,42 @@ def generar_contenedores(cantidad: int) -> list[dict]:
         }
         for numero in range(1, cantidad + 1)
     ]
+def generar_sensores(contenedores: list[dict]) -> list[dict]:
+    """Genera un sensor por contenedor del lote."""
+    return [
+        {
+            "id": str(uuid4()),
+            "contenedor_id": contenedor["id"],
+            "numero_serie": f"TST-SENSOR-{contenedor['codigo_iso']}",
+            "modelo": "MULTI-PRUEBA",
+            "tipo": "MULTISENSOR",
+            "intervalo_reporte_segundos": 60,
+            "estado": "ACTIVO",
+        }
+        for contenedor in contenedores
+    ]
 
 if __name__ == "__main__":
-    contenedores = generar_contenedores(5)
-
     carpeta = Path(__file__).resolve().parent / "datos_generados"
     carpeta.mkdir(exist_ok=True)
 
-    archivo = carpeta / "contenedores.json"
+    archivo_contenedores = carpeta / "contenedores.json"
 
-    with archivo.open("x", encoding="utf-8") as salida:
-        json.dump(contenedores, salida, ensure_ascii=False, indent=2)
+    if archivo_contenedores.exists():
+        with archivo_contenedores.open(encoding="utf-8") as entrada:
+            contenedores = json.load(entrada)
+    else:
+        contenedores = generar_contenedores(5)
+        with archivo_contenedores.open("x", encoding="utf-8") as salida:
+            json.dump(contenedores, salida, ensure_ascii=False, indent=2)
 
-    print(f"Se guardaron {len(contenedores)} contenedores en {archivo}")
+    archivo_sensores = carpeta / "sensores.json"
+
+    if archivo_sensores.exists():
+        print("El lote de sensores ya existe; se conserva.")
+    else:
+        sensores = generar_sensores(contenedores)
+        with archivo_sensores.open("x", encoding="utf-8") as salida:
+            json.dump(sensores, salida, ensure_ascii=False, indent=2)
+
+        print(f"Se guardaron {len(sensores)} sensores en {archivo_sensores}")
