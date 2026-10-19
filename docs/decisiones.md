@@ -793,3 +793,85 @@ no corrieron nunca: la base quedo vacia sin que nadie se enterara.
 `python scripts/aplicar_esquema.py` crea el esquema y carga los datos semilla;
 con `--reiniciar` borra todo y lo rehace. Es idempotente y sirve tanto para
 montar el entorno de cero como para dejarlo limpio antes de la defensa.
+
+---
+
+
+---
+
+## D31 — `LecturaRepository` en Cassandra: qué devuelve y cómo escribe
+
+**Estado:** propuesta · **Responsable:** Mati · **Alcance:** `domain/lectura.py`, `repositories/lectura_repository.py`, `infrastructure/cassandra`
+
+**1. `posiciones_de_contenedor` devuelve `Posicion`, no `Lectura`.**
+La tabla `recorrido_por_contenedor` guarda solo lo necesario para dibujar la ruta
+(contenedor, sensor, envío, latitud y longitud). Una `Lectura` exige temperatura,
+humedad, vibración y batería, que esa tabla no tiene. Había dos salidas: ensanchar
+la tabla hasta duplicar `lecturas_por_sensor`, o devolver un tipo más chico. Se
+eligió lo segundo. **Es un cambio a la interfaz** (se agrega `Posicion` al dominio).
+
+**2. `guardar` escribe en las dos tablas con un batch `LOGGED`.**
+Cassandra registra el batch antes de aplicarlo: si el nodo cae a mitad, lo completa
+después, y las dos tablas no quedan desincronizadas. Cuesta algo de rendimiento,
+pero son solo dos escrituras. La escritura es idempotente (misma clave, misma fila).
+Se usa nivel de consistencia `ONE`: perder una lectura aislada es tolerable.
+
+**3. Una lectura sin envío no escribe `envio_id`.**
+Escribir `None` en Cassandra crea un tombstone. Se usa `UNSET_VALUE`, que no
+escribe la columna. Al leer, esa columna vuelve como `None`.
+
+**4. La partición se calcula en UTC.**
+Un `momento` sin zona horaria se interpreta como UTC, que es la convención del
+grupo. Se normaliza antes de calcular el día de la partición. Al leer, el driver
+devuelve fechas sin zona y se la reponemos.
+
+**5. Los rangos tienen límite.**
+Cada día es una partición, así que un rango es una consulta por día. `desde` y
+`hasta` son inclusivos, y un rango de más de 31 días se rechaza con
+`ValidacionError`. `ultimas` retrocede como máximo 30 días hasta juntar la cantidad
+pedida; un sensor que lleva más tiempo callado devuelve menos lecturas.
+
+**Limitación aceptada:** `listar_por_sensor` no completa `envio_id`, porque
+`lecturas_por_sensor` no lo guarda. Está disponible en `recorrido_por_contenedor`.
+
+**Le cambia el trabajo a:** Thiago (interfaz y `container.py`) y Umbi (el
+simulador tiene que generar `momento` en UTC).
+
+---
+
+## D32 — `IncidenteRepository` en MongoDB y la entidad `Incidente`
+
+**Estado:** propuesta · **Responsable:** Mati · **Alcance:** `domain/incidente.py`, `repositories/incidente_repository.py`, `infrastructure/mongo`
+
+**1. Entidad `Incidente`.** Sigue D1, D2 y D4: estados, tipos y severidades son
+`Enum` puro con valores en mayúsculas (D19), y el cambio de estado se hace solo con
+`pasar_a()`, que valida la transición y la deja en el historial embebido. El
+`ContextoEnvio` es la foto del envío al ocurrir el incidente (D12) y su `ruta` se
+deriva de origen y destino, como `Lectura.dia`.
+
+**2. Transiciones (supuesto nuevo).** `ABIERTO → EN_ANALISIS | RESUELTO`,
+`EN_ANALISIS → RESUELTO`, `RESUELTO → CERRADO | ABIERTO` (reapertura). `CERRADO` es
+final. El enunciado no define el ciclo de vida de un incidente: es un supuesto a
+documentar.
+
+**3. "Incidentes abiertos" son `ABIERTO` y `EN_ANALISIS`.** Otro supuesto: el
+enunciado no define qué cuenta como abierto.
+
+**4. `contar_agrupado` recibe un enum, no un nombre de campo.** Evita filtrar
+detalles de Mongo hacia arriba y agrupar por un campo inexistente. Es la mitad
+Mongo del "promedio de incidentes por país, estado y cliente": el promedio lo
+calcula el servicio dividiendo por la cantidad de envíos, que vive en PostgreSQL.
+`ranking_de_rutas` es el mismo conteo agrupado por ruta (D12).
+
+**5. Configuración de la conexión.** `uuidRepresentation="standard"` guarda los
+`uuid.UUID` como `binData` subtipo 4, igual que `UUID()` en mongosh; sin eso, los
+ids no coinciden con los de los scripts ni con los de las otras bases, y pymongo ni
+siquiera acepta guardarlos. `tz_aware=True` devuelve las fechas con zona UTC.
+
+**6. `actualizar` reemplaza el documento entero (D18)** y lanza `NoEncontrado` si
+no existe. Los errores de pymongo se traducen igual que los de psycopg (D29): una
+clave duplicada es `ConflictoDeDatos` y un documento que no cumple el `$jsonSchema`
+(código 121) es `ValidacionError`.
+
+**Le cambia el trabajo a:** Thiago (`container.py`).
+

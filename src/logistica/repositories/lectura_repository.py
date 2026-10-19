@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from uuid import UUID
 
-from logistica.domain.lectura import Lectura
+from logistica.domain.lectura import Lectura, Posicion
 
 
 class LecturaRepository(ABC):
@@ -19,17 +19,33 @@ class LecturaRepository(ABC):
         ...
 
     @abstractmethod
-    def guardar_lote(self, lecturas: list[Lectura]) -> None: ...
+    def guardar_lote(self, lecturas: list[Lectura]) -> None:
+        """Persiste varias lecturas.
+
+        No es atomico entre lecturas, pero cada escritura es idempotente: ante un
+        error se puede reintentar el lote completo sin duplicar nada.
+        """
+        ...
 
     @abstractmethod
     def listar_por_sensor(
         self, sensor_id: UUID, desde: datetime, hasta: datetime
-    ) -> list[Lectura]: ...
+    ) -> list[Lectura]:
+        """Lecturas de un sensor entre `desde` y `hasta` (ambos inclusivos), de la
+        mas vieja a la mas nueva. No completa `envio_id`: esa tabla no lo guarda."""
+        ...
 
     @abstractmethod
     def posiciones_de_contenedor(
         self, contenedor_id: UUID, desde: datetime, hasta: datetime
-    ) -> list[Lectura]: ...
+    ) -> list[Posicion]:
+        """Recorrido GPS de un contenedor, de la mas vieja a la mas nueva.
+
+        Devuelve Posicion y no Lectura: la tabla recorrido_por_contenedor guarda
+        solo lo necesario para dibujar la ruta (D31)."""
+        ...
 
     @abstractmethod
-    def ultimas(self, sensor_id: UUID, cantidad: int) -> list[Lectura]: ...
+    def ultimas(self, sensor_id: UUID, cantidad: int) -> list[Lectura]:
+        """Las `cantidad` lecturas mas recientes, de la mas nueva a la mas vieja."""
+        ...
