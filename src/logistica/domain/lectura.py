@@ -28,3 +28,20 @@ class Lectura:
         dato se terminan contradiciendo.
         """
         return self.momento.strftime("%Y-%m-%d")
+
+
+@dataclass(frozen=True)
+class Posicion:
+    """Un punto del recorrido de un contenedor (tabla recorrido_por_contenedor).
+
+    No es una Lectura: esa tabla guarda solo lo necesario para dibujar la ruta
+    (posicion, sensor y envio), no temperatura, humedad, vibracion ni bateria
+    (D31).
+    """
+
+    contenedor_id: UUID
+    sensor_id: UUID
+    momento: datetime
+    latitud: float
+    longitud: float
+    envio_id: UUID | None = None

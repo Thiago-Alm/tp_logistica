@@ -18,6 +18,8 @@ from logistica.config import Settings
 from logistica.config import settings as settings_por_defecto
 from logistica.infrastructure.postgres.unidad_de_trabajo import UnidadDeTrabajoPostgres
 from logistica.logging_config import setup_logging
+from logistica.repositories.incidente_repository import IncidenteRepository
+from logistica.repositories.lectura_repository import LecturaRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 from logistica.services.cliente_service import ClienteService
 from logistica.services.usuario_service import UsuarioService
@@ -52,3 +54,27 @@ class Contenedor:
     @cached_property
     def usuarios(self) -> UsuarioService:
         return UsuarioService(self.unidad_de_trabajo)
+
+    # -- Cassandra y MongoDB -------------------------------------------------
+    # Estos repositorios no pasan por la UnidadDeTrabajo: son otros motores y no
+    # comparten transaccion con PostgreSQL (la coherencia entre bases la cubre el
+    # Outbox). Los imports son perezosos para que la aplicacion siga arrancando
+    # aunque todavia no esten instalados los drivers.
+
+    @cached_property
+    def lecturas(self) -> LecturaRepository:
+        from logistica.infrastructure.cassandra.conexion import conectar
+        from logistica.infrastructure.cassandra.lectura_repository import (
+            CassandraLecturaRepository,
+        )
+
+        return CassandraLecturaRepository(conectar(self.settings))
+
+    @cached_property
+    def incidentes(self) -> IncidenteRepository:
+        from logistica.infrastructure.mongo.conexion import conectar
+        from logistica.infrastructure.mongo.incidente_repository import (
+            MongoIncidenteRepository,
+        )
+
+        return MongoIncidenteRepository(conectar(self.settings))
