@@ -9,3 +9,7 @@ logs/*.log*
 .idea/
 .vscode/
 _to_delete/
+
+# Temporales de Office (aparecen mientras un documento esta abierto)
+~$*
+~WRL*.tmp
