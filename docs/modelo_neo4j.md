@@ -7,7 +7,7 @@ Responsable: UMBI
 Neo4j se utilizará para consultar las relaciones de la red logística:
 
 - Recorridos de los envíos.
-- Conexiones entre clientes, operadores y proveedores.
+- Conexiones entre clientes, operadores y envíos.
 - Movimientos históricos de los contenedores.
 
 ## Identificadores compartidos
@@ -29,7 +29,6 @@ modelo de PostgreSQL y el proceso de sincronización del grupo.
 |---|---|
 | Cliente | Cliente que solicita un envío |
 | Operador | Operador logístico |
-| Proveedor | Proveedor que participa en la operación |
 | Ubicacion | Lugar de origen, destino o paso |
 | Contenedor | Contenedor utilizado para transportar carga |
 | Envio | Envío realizado |
@@ -46,8 +45,7 @@ necesarias y el modelo acordado con el grupo.
 | Nodo de origen | Relación | Nodo de destino |
 |---|---|---|
 | Cliente | SOLICITA | Envio |
-| Operador | GESTIONA | Envio |
-| Proveedor | PARTICIPA_EN | Envio |
+| Operador | OPERA | Vehiculo |
 | Envio | INCLUYE | Contenedor |
 | Envio | ORIGEN | Ubicacion |
 | Envio | DESTINO | Ubicacion |
@@ -118,3 +116,32 @@ de Neo4j, que también permitirán buscar los nodos por su UUID.
 
 Las demás reglas deberán validarse en la aplicación y en
 el proceso de sincronización.
+
+## Relación entre operadores y envíos — D11
+
+El operador se vincula con sus vehículos mediante `OPERA`.
+Los envíos se vinculan con los vehículos mediante sus tramos:
+
+`Envio → TIENE_TRAMO → Tramo → UTILIZA → Vehiculo ← OPERA ← Operador`
+
+No se crea la relación directa `GESTIONA`.
+Los proveedores se administran en PostgreSQL y quedan fuera
+del grafo porque el modelo no define su vínculo con los envíos.
+
+## Modelo físico: restricciones, índices y particionamiento
+
+El script `scripts/neo4j/01_constraints.cypher` crea restricciones
+de unicidad de `id` para Cliente, Operador, Ubicacion, Contenedor,
+Envio, Vehiculo y Tramo.
+
+Cada restricción crea un índice de respaldo para buscar por `id`.
+No es necesario crear otro índice sobre la misma propiedad.
+
+La unicidad no obliga a que exista la propiedad: la aplicación
+validará que todos los nodos tengan `id`.
+
+En desarrollo se utiliza una única instancia de Neo4j,
+sin particionamiento del grafo entre servidores.
+
+Validación realizada: ejecución del script y consulta
+`SHOW CONSTRAINTS`, con las siete restricciones presentes.

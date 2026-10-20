@@ -1,0 +1,37 @@
+[
+  {
+    "id": "f526c497-60cb-47ed-8bf5-2bb93b3912a2",
+    "codigo_iso": "TSTU0000001",
+    "tipo": "DRY_20",
+    "capacidad": 33.0,
+    "estado": "DISPONIBLE"
+  },
+  {
+    "id": "bb1650e2-667a-4107-b891-58f0f5c4a58f",
+    "codigo_iso": "TSTU0000002",
+    "tipo": "DRY_20",
+    "capacidad": 33.0,
+    "estado": "DISPONIBLE"
+  },
+  {
+    "id": "d4e8e6f0-875f-4ab8-9fbb-97ac5643f9b6",
+    "codigo_iso": "TSTU0000003",
+    "tipo": "DRY_20",
+    "capacidad": 33.0,
+    "estado": "DISPONIBLE"
+  },
+  {
+    "id": "038a481e-5b02-4b18-bd36-493e6fbeb675",
+    "codigo_iso": "TSTU0000004",
+    "tipo": "DRY_20",
+    "capacidad": 33.0,
+    "estado": "DISPONIBLE"
+  },
+  {
+    "id": "46775d2f-53c9-4dc2-b09e-bb95b867aac8",
+    "codigo_iso": "TSTU0000005",
+    "tipo": "DRY_20",
+    "capacidad": 33.0,
+    "estado": "DISPONIBLE"
+  }
+]
