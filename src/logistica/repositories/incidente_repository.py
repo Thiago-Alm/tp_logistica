@@ -4,6 +4,7 @@ from enum import Enum
 from uuid import UUID
 
 from logistica.domain.incidente import Incidente
+from logistica.domain.reportes import ConteoIncidentes, RutaConIncidentes
 
 
 class AgrupacionIncidentes(Enum):
@@ -49,7 +50,7 @@ class IncidenteRepository(ABC):
     @abstractmethod
     def contar_agrupado(
         self, por: AgrupacionIncidentes, limite: int | None = None
-    ) -> list[tuple[str, int]]:
+    ) -> list[ConteoIncidentes]:
         """Cantidad de incidentes por grupo, de mayor a menor.
 
         Es la mitad Mongo de "promedio de incidentes por pais / estado / cliente":
@@ -59,6 +60,6 @@ class IncidenteRepository(ABC):
         ...
 
     @abstractmethod
-    def ranking_de_rutas(self, limite: int = 10) -> list[tuple[str, int]]:
+    def ranking_de_rutas(self, limite: int = 10) -> list[RutaConIncidentes]:
         """Reporte "Ranking de rutas con mayor cantidad de incidentes" (D12)."""
         ...

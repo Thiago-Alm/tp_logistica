@@ -13,6 +13,7 @@ from logistica.domain.incidente import (
     SeveridadIncidente,
     TipoIncidente,
 )
+from logistica.domain.reportes import ConteoIncidentes, RutaConIncidentes
 from logistica.exceptions import NoEncontrado
 from logistica.infrastructure.mongo.conexion import traducir_errores
 from logistica.repositories.incidente_repository import (
@@ -125,7 +126,7 @@ class MongoIncidenteRepository(IncidenteRepository):
     @traducir_errores
     def contar_agrupado(
         self, por: AgrupacionIncidentes, limite: int | None = None
-    ) -> list[tuple[str, int]]:
+    ) -> list[ConteoIncidentes]:
         pipeline: list[dict[str, Any]] = [
             {"$group": {"_id": _CAMPO_DE_AGRUPACION[por], "total": {"$sum": 1}}},
             # El desempate por _id hace estable el orden entre grupos iguales.
@@ -133,7 +134,13 @@ class MongoIncidenteRepository(IncidenteRepository):
         ]
         if limite is not None:
             pipeline.append({"$limit": limite})
-        return [(str(d["_id"]), d["total"]) for d in self._coleccion.aggregate(pipeline)]
+        return [
+            ConteoIncidentes(grupo=str(d["_id"]), cantidad=d["total"])
+            for d in self._coleccion.aggregate(pipeline)
+        ]
 
-    def ranking_de_rutas(self, limite: int = 10) -> list[tuple[str, int]]:
-        return self.contar_agrupado(AgrupacionIncidentes.RUTA, limite)
+    def ranking_de_rutas(self, limite: int = 10) -> list[RutaConIncidentes]:
+        return [
+            RutaConIncidentes(ruta=c.grupo, cantidad=c.cantidad)
+            for c in self.contar_agrupado(AgrupacionIncidentes.RUTA, limite)
+        ]

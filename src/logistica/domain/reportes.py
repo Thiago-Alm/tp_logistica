@@ -55,3 +55,28 @@ class VolumenPorCliente:
     cliente_id: UUID
     razon_social: str
     volumen: Decimal
+
+
+@dataclass(frozen=True)
+class ConteoIncidentes:
+    """Cantidad de incidentes de un grupo (pais, cliente, estado o ruta).
+
+    `grupo` es siempre texto: cuando el eje es el cliente, es su UUID en forma
+    de cadena, porque MongoDB no resuelve la razon social (vive en PostgreSQL).
+    Resolverla es tarea del servicio.
+    """
+
+    grupo: str
+    cantidad: int
+
+
+@dataclass(frozen=True)
+class RutaConIncidentes:
+    """Una fila del ranking de rutas con mas incidentes (D12).
+
+    `ruta` es el par origen-destino tal como quedo en el snapshot del incidente,
+    por ejemplo "ARBUE->NLRTM".
+    """
+
+    ruta: str
+    cantidad: int

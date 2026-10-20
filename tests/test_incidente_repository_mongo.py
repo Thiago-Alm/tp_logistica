@@ -135,18 +135,19 @@ def test_ranking_de_rutas_cuenta_y_ordena(repo, creados):
     repo.guardar(_incidente(creados, origen=ruta_b[0], destino=ruta_b[1]))
 
     ranking = repo.ranking_de_rutas(limite=1000)
-    totales = dict(ranking)
+    totales = {fila.ruta: fila.cantidad for fila in ranking}
     clave_a, clave_b = f"{ruta_a[0]}->{ruta_a[1]}", f"{ruta_b[0]}->{ruta_b[1]}"
     assert totales[clave_a] == 2
     assert totales[clave_b] == 1
-    claves = [k for k, _ in ranking]
-    assert claves.index(clave_a) < claves.index(clave_b)
+    rutas = [fila.ruta for fila in ranking]
+    assert rutas.index(clave_a) < rutas.index(clave_b)
 
 
 def test_contar_agrupado_por_cliente_devuelve_el_uuid_como_texto(repo, creados):
     incidente = _incidente(creados)
     repo.guardar(incidente)
-    totales = dict(repo.contar_agrupado(AgrupacionIncidentes.CLIENTE))
+    conteos = repo.contar_agrupado(AgrupacionIncidentes.CLIENTE)
+    totales = {fila.grupo: fila.cantidad for fila in conteos}
     assert totales[str(incidente.contexto_envio.cliente_id)] == 1
 
 

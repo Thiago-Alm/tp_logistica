@@ -24,25 +24,24 @@ def main():
         dbname=os.getenv("POSTGRES_DB", "logistica"),
         user=os.getenv("POSTGRES_USER", "logistica"),
         password=os.environ["POSTGRES_PASSWORD"],
-    ) as conexion:
-        with conexion.cursor() as cursor:
-            for contenedor in contenedores:
-                cursor.execute(
-                    """
+    ) as conexion, conexion.cursor() as cursor:
+        for contenedor in contenedores:
+            cursor.execute(
+                """
                     INSERT INTO contenedor
                         (id, codigo_iso, tipo, capacidad, estado)
                     VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
                     """,
-                    (
-                        contenedor["id"],
-                        contenedor["codigo_iso"],
-                        contenedor["tipo"],
-                        contenedor["capacidad"],
-                        contenedor["estado"],
-                    ),
-                )
-                insertados += cursor.rowcount
+                (
+                    contenedor["id"],
+                    contenedor["codigo_iso"],
+                    contenedor["tipo"],
+                    contenedor["capacidad"],
+                    contenedor["estado"],
+                ),
+            )
+            insertados += cursor.rowcount
 
     print(f"Contenedores nuevos insertados: {insertados}")
 

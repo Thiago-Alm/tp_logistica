@@ -105,7 +105,8 @@ def test_listar_por_sensor_sale_en_orden_cronologico(repo, ids):
     base = AHORA.replace(hour=8)
     for minutos in (30, 0, 15):  # se guardan desordenadas a proposito
         repo.guardar(_lectura(ids, base + timedelta(minutes=minutos), temperatura=minutos))
-    momentos = [l.momento for l in repo.listar_por_sensor(ids[0], base, base + timedelta(hours=1))]
+    leidas = repo.listar_por_sensor(ids[0], base, base + timedelta(hours=1))
+    momentos = [lec.momento for lec in leidas]
     assert momentos == sorted(momentos)
     assert len(momentos) == 3
 
@@ -117,7 +118,7 @@ def test_listar_por_sensor_respeta_el_rango(repo, ids):
     resultado = repo.listar_por_sensor(
         ids[0], base + timedelta(minutes=10), base + timedelta(minutes=20)
     )
-    assert [l.momento for l in resultado] == [
+    assert [lec.momento for lec in resultado] == [
         base + timedelta(minutes=10),
         base + timedelta(minutes=20),
     ]
@@ -131,7 +132,7 @@ def test_un_rango_que_cruza_la_medianoche_lee_las_dos_particiones(repo, ids):
     resultado = repo.listar_por_sensor(
         ids[0], antes - timedelta(hours=1), despues + timedelta(hours=1)
     )
-    assert [l.momento for l in resultado] == [antes, despues]
+    assert [lec.momento for lec in resultado] == [antes, despues]
 
 
 def test_ultimas_devuelve_las_mas_recientes_primero_y_cruza_dias(repo, ids):
@@ -140,10 +141,10 @@ def test_ultimas_devuelve_las_mas_recientes_primero_y_cruza_dias(repo, ids):
     repo.guardar(_lectura(ids, datetime(2026, 10, 18, 22, 0, tzinfo=UTC)))
 
     tres = repo.ultimas(ids[0], 3)
-    assert [l.momento.hour for l in tres] == [11, 10, 22]
+    assert [lec.momento.hour for lec in tres] == [11, 10, 22]
 
     dos = repo.ultimas(ids[0], 2)
-    assert [l.momento.hour for l in dos] == [11, 10]
+    assert [lec.momento.hour for lec in dos] == [11, 10]
 
 
 def test_guardar_lote(repo, ids):

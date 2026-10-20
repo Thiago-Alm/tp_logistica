@@ -875,3 +875,27 @@ clave duplicada es `ConflictoDeDatos` y un documento que no cumple el `$jsonSche
 
 **Le cambia el trabajo a:** Thiago (`container.py`).
 
+---
+
+## D33 — Los reportes devuelven objetos del dominio, nunca tuplas
+
+**Estado:** acordada · **Fecha:** 20/10/2026 · **Alcance:** todos los repositorios
+
+Los metodos de agregacion devuelven dataclasses `frozen` de
+`domain/reportes.py`, no `tuple` ni `dict`.
+
+**Por que:** la regla del proyecto es que los repositorios reciben y devuelven
+objetos del dominio, nunca filas (D2). Una `tuple[str, int]` ES una fila: en
+quien la consume queda `fila[0]` y `fila[1]`, sin que nada diga que el primero
+es el pais y el segundo la cantidad. Con un objeto, el nombre del campo lo dice,
+y si manana la consulta agrega una columna, los consumidores no se rompen.
+
+**Aplicado el 20/10 sobre `IncidenteRepository`:** `contar_agrupado` devolvia
+`list[tuple[str, int]]` y ahora devuelve `list[ConteoIncidentes]`;
+`ranking_de_rutas` devolvia lo mismo y ahora devuelve `list[RutaConIncidentes]`.
+Se agregaron las dos clases a `domain/reportes.py`, junto a las que ya existian
+para los reportes de envios.
+
+**Nota sobre `ConteoIncidentes.grupo`:** es siempre texto, incluso cuando el eje
+es el cliente, porque MongoDB guarda el UUID pero no la razon social, que vive
+en PostgreSQL. Resolver el nombre es tarea del servicio, no del repositorio.

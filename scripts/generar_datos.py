@@ -1,7 +1,8 @@
 """Generador de datos de prueba para el proyecto de logística."""
-from uuid import uuid4
 import json
 from pathlib import Path
+from uuid import uuid4
+
 
 def generar_codigo_iso(numero: int) -> str:
     """Genera un código de prueba de 4 letras y 7 dígitos."""

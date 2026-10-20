@@ -25,11 +25,10 @@ def main():
         dbname=os.getenv("POSTGRES_DB", "logistica"),
         user=os.getenv("POSTGRES_USER", "logistica"),
         password=os.environ["POSTGRES_PASSWORD"],
-    ) as conexion:
-        with conexion.cursor() as cursor:
-            for sensor in sensores:
-                cursor.execute(
-                    """
+    ) as conexion, conexion.cursor() as cursor:
+        for sensor in sensores:
+            cursor.execute(
+                """
                     INSERT INTO sensor (
                         id,
                         contenedor_id,
@@ -42,17 +41,17 @@ def main():
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
                     """,
-                    (
-                        sensor["id"],
-                        sensor["contenedor_id"],
-                        sensor["numero_serie"],
-                        sensor["modelo"],
-                        sensor["tipo"],
-                        sensor["intervalo_reporte_segundos"],
-                        sensor["estado"],
-                    ),
-                )
-                insertados += cursor.rowcount
+                (
+                    sensor["id"],
+                    sensor["contenedor_id"],
+                    sensor["numero_serie"],
+                    sensor["modelo"],
+                    sensor["tipo"],
+                    sensor["intervalo_reporte_segundos"],
+                    sensor["estado"],
+                ),
+            )
+            insertados += cursor.rowcount
 
     print(f"Sensores nuevos insertados: {insertados}")
 
