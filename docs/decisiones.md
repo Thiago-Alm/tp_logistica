@@ -951,3 +951,51 @@ redondeo que D15 evita.
 `evento_tipo = 'ENVIO_CREADO'`, que repite el agregado dentro del tipo de
 evento. Son dos ejes independientes: quedo `agregado_tipo = 'ENVIO'` y
 `evento_tipo = 'CREADO'`.
+
+---
+
+## D35 — Los proyectores son idempotentes: MERGE, nunca CREATE
+
+**Estado:** acordada · **Fecha:** 21/10/2026 · **Alcance:** `sync/`
+
+El worker garantiza **entrega al menos una vez** (*at-least-once*), no
+exactamente una vez. Entre el instante en que Neo4j confirma la escritura y el
+instante en que el worker marca el evento como procesado hay una ventana: si el
+proceso muere ahi, el evento sigue pendiente y **se vuelve a entregar**.
+
+Esa ventana **no se puede eliminar** sin una transaccion distribuida entre
+PostgreSQL y Neo4j. Asi que la solucion no es perseguir el *exactamente una
+vez*, sino hacer que recibir el evento dos veces sea inofensivo:
+
+> entrega al menos una vez + proyector idempotente = efecto exactamente una vez
+
+**En la practica: `MERGE` y nunca `CREATE`.** Con `CREATE` pasa una de dos, y
+las dos son malas: sin restriccion de unicidad quedan dos nodos con el mismo
+id; con la restriccion que define `scripts/neo4j/01_constraints.cypher`, el
+segundo intento **falla**, el evento se marca fallido, se reintenta, vuelve a
+fallar, y se vence sin haber llegado nunca. `MERGE` busca el nodo y lo crea
+solo si no existe.
+
+Las restricciones de Umbi cumplen aqui un segundo papel ademas del de
+integridad: le dan a `MERGE` el indice que evita recorrer todos los nodos.
+
+**Otras decisiones del worker:**
+
+- **Un proyector por motor de destino, detras de una interfaz.** Agregar un
+  destino es sumar un proyector a la lista del contenedor, sin tocar el worker.
+  Y permite testear el worker entero con proyectores falsos, **sin levantar
+  ninguna base**: los 14 tests de `test_sync_worker.py` corren en memoria.
+- **MongoDB no tiene proyector, y es correcto.** El Outbox existe para los
+  motores que contienen una *proyeccion* de datos de PostgreSQL. MongoDB es
+  **dueno** de sus entidades (incidentes, alertas, chat, reportes,
+  predicciones): nadie las deriva de otra base. El unico destino real es Neo4j.
+- **Un evento que falla no frena la tanda.** Si un destino esta caido, los
+  eventos de los otros destinos tienen que poder seguir. El fallido queda
+  pendiente para el proximo turno.
+- **Backoff medido desde el ultimo intento.** Se agrego la columna
+  `outbox.fecha_ultimo_intento`. Midiendo desde `fecha_creacion`, un evento
+  viejo con varios reintentos pasaria el control siempre y el backoff no
+  serviria de nada.
+- **Payloads tolerantes.** El proyector completa con `null` los parametros que
+  el payload no trae, y lo registra en el log. Un evento encolado por una
+  version anterior del codigo no debe trabar la cola para siempre.

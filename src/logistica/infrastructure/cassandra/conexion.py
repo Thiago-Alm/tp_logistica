@@ -5,9 +5,9 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar
 
+from cassandra import DriverException
 from cassandra.cluster import Cluster, NoHostAvailable, Session
 
-from cassandra import DriverException
 from logistica.config import Settings
 from logistica.exceptions import ErrorDePersistencia
 

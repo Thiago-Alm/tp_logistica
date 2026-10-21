@@ -5,10 +5,10 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+from cassandra import ConsistencyLevel
 from cassandra.cluster import Session
 from cassandra.query import UNSET_VALUE, BatchStatement, BatchType
 
-from cassandra import ConsistencyLevel
 from logistica.domain.lectura import Lectura, Posicion
 from logistica.exceptions import ValidacionError
 from logistica.infrastructure.cassandra.conexion import traducir_errores

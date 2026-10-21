@@ -362,6 +362,11 @@ CREATE TABLE outbox (
     fecha_procesado TIMESTAMPTZ,
     error_mensaje TEXT,
     reintentos INT NOT NULL DEFAULT 0,
+    -- Momento del ultimo intento fallido. El backoff se mide desde aca y no
+    -- desde fecha_creacion: si se midiera desde la creacion, un evento viejo
+    -- con varios reintentos pasaria el control siempre y el backoff no
+    -- serviria de nada.
+    fecha_ultimo_intento TIMESTAMPTZ,
     CONSTRAINT chk_outbox_reintentos CHECK (reintentos >= 0)
 );
 

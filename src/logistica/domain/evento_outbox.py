@@ -54,6 +54,7 @@ class EventoOutbox:
     fecha_procesado: datetime | None = None
     error_mensaje: str | None = None
     reintentos: int = 0
+    fecha_ultimo_intento: datetime | None = None
 
     def __post_init__(self) -> None:
         self.validar()
@@ -87,7 +88,7 @@ class EventoOutbox:
             self.procesado, self.fecha_procesado, self.error_mensaje = anterior
             raise
 
-    def marcar_fallido(self, mensaje: str) -> None:
+    def marcar_fallido(self, mensaje: str, momento: datetime | None = None) -> None:
         """La propagacion fallo. El evento sigue pendiente y se reintenta.
 
         No se marca como procesado: esa es justamente la garantia del patron,
@@ -95,11 +96,22 @@ class EventoOutbox:
         """
         self.reintentos += 1
         self.error_mensaje = mensaje[:500]
+        self.fecha_ultimo_intento = momento
 
     # --- Politica de reintentos ------------------------------------------
 
     def puede_reintentarse(self, maximo: int = REINTENTOS_MAXIMOS) -> bool:
         return not self.procesado and self.reintentos < maximo
+
+    def le_toca_reintentar(self, ahora: datetime) -> bool:
+        """Si ya paso el tiempo de espera desde el ultimo intento.
+
+        Un evento que nunca se intento (reintentos == 0) va de una.
+        """
+        if self.reintentos == 0 or self.fecha_ultimo_intento is None:
+            return True
+        transcurrido = (ahora - self.fecha_ultimo_intento).total_seconds()
+        return transcurrido >= self.segundos_de_espera()
 
     def segundos_de_espera(self) -> int:
         """Backoff exponencial: 1, 2, 4, 8, 16... hasta el tope.

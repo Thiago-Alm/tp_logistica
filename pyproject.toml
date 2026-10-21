@@ -22,3 +22,8 @@ src = ["src", "tests", "scripts"]
 # E/F: errores y estilo PEP 8. I: orden de imports (isort).
 # UP: sintaxis moderna. B: bugs comunes. SIM: simplificaciones.
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+# Sin esto, isort confunde el driver `neo4j` con src/logistica/infrastructure/neo4j
+# y lo ordena como import propio.
+known-third-party = ["neo4j", "psycopg", "pymongo", "redis", "cassandra"]

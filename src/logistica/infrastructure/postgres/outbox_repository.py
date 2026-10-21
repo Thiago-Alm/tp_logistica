@@ -9,7 +9,8 @@ from logistica.infrastructure.postgres.conexion import traducir_errores
 from logistica.repositories.outbox_repository import OutboxRepository
 
 COLUMNAS = """id, agregado_tipo, agregado_id, evento_tipo, payload,
-              fecha_creacion, procesado, fecha_procesado, error_mensaje, reintentos"""
+              fecha_creacion, procesado, fecha_procesado, error_mensaje, reintentos,
+              fecha_ultimo_intento"""
 
 
 def _a_evento(fila: tuple) -> EventoOutbox:
@@ -24,6 +25,7 @@ def _a_evento(fila: tuple) -> EventoOutbox:
         fecha_procesado=fila[7],
         error_mensaje=fila[8],
         reintentos=fila[9],
+        fecha_ultimo_intento=fila[10],
     )
 
 
@@ -36,22 +38,24 @@ class PostgresOutboxRepository(OutboxRepository):
         self._conexion.execute(
             """insert into outbox (id, agregado_tipo, agregado_id, evento_tipo,
                                    payload, fecha_creacion, procesado,
-                                   fecha_procesado, error_mensaje, reintentos)
-               values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                                   fecha_procesado, error_mensaje, reintentos,
+                                   fecha_ultimo_intento)
+               values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (evento.id, evento.agregado_tipo.value, evento.agregado_id,
              evento.evento_tipo.value, json.dumps(evento.payload, default=str),
              evento.fecha_creacion, evento.procesado, evento.fecha_procesado,
-             evento.error_mensaje, evento.reintentos),
+             evento.error_mensaje, evento.reintentos, evento.fecha_ultimo_intento),
         )
 
     @traducir_errores
     def actualizar(self, evento: EventoOutbox) -> None:
         self._conexion.execute(
             """update outbox set procesado = %s, fecha_procesado = %s,
-                                 error_mensaje = %s, reintentos = %s
+                                 error_mensaje = %s, reintentos = %s,
+                                 fecha_ultimo_intento = %s
                where id = %s""",
             (evento.procesado, evento.fecha_procesado, evento.error_mensaje,
-             evento.reintentos, evento.id),
+             evento.reintentos, evento.fecha_ultimo_intento, evento.id),
         )
 
     @traducir_errores

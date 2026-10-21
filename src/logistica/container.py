@@ -25,6 +25,7 @@ from logistica.services.cliente_service import ClienteService
 from logistica.services.envio_service import EnvioService
 from logistica.services.reporte_service import ReporteService
 from logistica.services.usuario_service import UsuarioService
+from logistica.sync.worker import WorkerDeSincronizacion
 
 log = logging.getLogger(__name__)
 
@@ -88,3 +89,22 @@ class Contenedor:
         )
 
         return MongoIncidenteRepository(conectar(self.settings))
+
+    # -- Sincronizacion ------------------------------------------------------
+
+    @cached_property
+    def worker_de_sincronizacion(self) -> WorkerDeSincronizacion:
+        """El worker que vacia el Outbox hacia los demas motores.
+
+        Hoy el unico proyector es el de Neo4j: es el unico motor que contiene
+        una PROYECCION de datos de PostgreSQL. MongoDB no necesita proyector
+        porque es dueno de sus entidades (incidentes, alertas, chat): nadie las
+        deriva de otra base. Agregar un destino nuevo es sumar un proyector a
+        esta lista, sin tocar el worker (D35).
+        """
+        from logistica.infrastructure.neo4j.conexion import conectar
+        from logistica.sync.proyector_neo4j import ProyectorNeo4j
+
+        return WorkerDeSincronizacion(
+            self.unidad_de_trabajo, [ProyectorNeo4j(conectar(self.settings))]
+        )
