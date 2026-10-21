@@ -37,6 +37,22 @@ class EnvioRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    def asociar_contenedor(self, envio_id: UUID, contenedor_id: UUID) -> None:
+        """Agrega un contenedor al envio (tabla envio_contenedor).
+
+        La relacion es N:M HISTORICA: el mismo contenedor puede haber viajado en
+        varios envios a lo largo del tiempo. Que no este en dos envios ACTIVOS a
+        la vez lo valida el servicio (D3), porque esa regla no se puede declarar
+        en la base sin perder el historico.
+        """
+        ...
+
+    @abstractmethod
+    def listar_contenedores(self, envio_id: UUID) -> list[UUID]:
+        """Ids de los contenedores asignados a un envio."""
+        ...
+
     # --- Lectura puntual -------------------------------------------------
 
     @abstractmethod

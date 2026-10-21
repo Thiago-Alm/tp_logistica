@@ -4,7 +4,15 @@ import logging
 from logistica.config import Settings
 from logistica.infrastructure.postgres.cliente_repository import PostgresClienteRepository
 from logistica.infrastructure.postgres.conexion import conectar
+from logistica.infrastructure.postgres.contenedor_repository import (
+    PostgresContenedorRepository,
+)
+from logistica.infrastructure.postgres.envio_repository import PostgresEnvioRepository
+from logistica.infrastructure.postgres.reporte_envio_repository import (
+    PostgresReporteEnvioRepository,
+)
 from logistica.infrastructure.postgres.rol_repository import PostgresRolRepository
+from logistica.infrastructure.postgres.tramo_repository import PostgresTramoRepository
 from logistica.infrastructure.postgres.usuario_repository import PostgresUsuarioRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 
@@ -25,6 +33,10 @@ class UnidadDeTrabajoPostgres(UnidadDeTrabajo):
         self.clientes = PostgresClienteRepository(self._conexion)
         self.roles = PostgresRolRepository(self._conexion)
         self.usuarios = PostgresUsuarioRepository(self._conexion)
+        self.envios = PostgresEnvioRepository(self._conexion)
+        self.tramos = PostgresTramoRepository(self._conexion)
+        self.contenedores = PostgresContenedorRepository(self._conexion)
+        self.reportes_envio = PostgresReporteEnvioRepository(self._conexion)
         return self
 
     def commit(self) -> None:

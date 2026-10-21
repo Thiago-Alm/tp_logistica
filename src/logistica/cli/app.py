@@ -5,7 +5,13 @@
 import logging
 import sys
 
-from logistica.cli import consola, menu_clientes, menu_usuarios
+from logistica.cli import (
+    consola,
+    menu_clientes,
+    menu_envios,
+    menu_reportes,
+    menu_usuarios,
+)
 from logistica.container import Contenedor
 from logistica.exceptions import ErrorDePersistencia, LogisticaError
 
@@ -42,6 +48,11 @@ def main() -> int:
                     "Usuarios y roles",
                     lambda: menu_usuarios.construir(contenedor.usuarios, contenedor.clientes),
                 ),
+                "3": (
+                    "Envios y trayectos",
+                    lambda: menu_envios.construir(contenedor.envios, contenedor.clientes),
+                ),
+                "4": ("Reportes", lambda: menu_reportes.construir(contenedor.reportes)),
             },
             salida="Salir",
         )

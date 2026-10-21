@@ -22,6 +22,8 @@ from logistica.repositories.incidente_repository import IncidenteRepository
 from logistica.repositories.lectura_repository import LecturaRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 from logistica.services.cliente_service import ClienteService
+from logistica.services.envio_service import EnvioService
+from logistica.services.reporte_service import ReporteService
 from logistica.services.usuario_service import UsuarioService
 
 log = logging.getLogger(__name__)
@@ -54,6 +56,14 @@ class Contenedor:
     @cached_property
     def usuarios(self) -> UsuarioService:
         return UsuarioService(self.unidad_de_trabajo)
+
+    @cached_property
+    def envios(self) -> EnvioService:
+        return EnvioService(self.unidad_de_trabajo)
+
+    @cached_property
+    def reportes(self) -> ReporteService:
+        return ReporteService(self.unidad_de_trabajo)
 
     # -- Cassandra y MongoDB -------------------------------------------------
     # Estos repositorios no pasan por la UnidadDeTrabajo: son otros motores y no

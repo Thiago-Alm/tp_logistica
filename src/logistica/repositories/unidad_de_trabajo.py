@@ -18,7 +18,11 @@ se deshace todo.
 from abc import ABC, abstractmethod
 
 from logistica.repositories.cliente_repository import ClienteRepository
+from logistica.repositories.contenedor_repository import ContenedorRepository
+from logistica.repositories.envio_repository import EnvioRepository
+from logistica.repositories.reporte_envio_repository import ReporteEnvioRepository
 from logistica.repositories.rol_repository import RolRepository
+from logistica.repositories.tramo_repository import TramoRepository
 from logistica.repositories.usuario_repository import UsuarioRepository
 
 
@@ -26,6 +30,10 @@ class UnidadDeTrabajo(ABC):
     clientes: ClienteRepository
     roles: RolRepository
     usuarios: UsuarioRepository
+    envios: EnvioRepository
+    tramos: TramoRepository
+    contenedores: ContenedorRepository
+    reportes_envio: ReporteEnvioRepository
 
     def __enter__(self) -> "UnidadDeTrabajo":
         return self
