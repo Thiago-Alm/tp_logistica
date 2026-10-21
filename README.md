@@ -12,6 +12,8 @@ Aplicacion de consola en Python con 5 motores: PostgreSQL, MongoDB, Neo4j, Redis
 6. Crear el esquema y los datos de prueba: `python scripts/aplicar_esquema.py`
 7. Correr los tests: `pytest`
 8. Arrancar la aplicacion: `python -m logistica`
+9. En otra terminal, los procesos periodicos: `python -m logistica.jobs.planificador`
+   (propaga el Outbox cada 10 s y chequea la consistencia cada 30 min)
 
 La contrasena de los cuatro usuarios de prueba es `demo1234`.
 
@@ -32,7 +34,8 @@ contenedor y actualizar el `.env`.
 - `src/logistica/infrastructure/`: implementaciones de cada interfaz, una carpeta por motor.
 - `src/logistica/services/`: casos de uso.
 - `src/logistica/sync/`: Outbox, worker de sincronizacion y chequeo de consistencia.
-- `src/logistica/jobs/`: procesos periodicos.
+- `src/logistica/jobs/`: procesos periodicos. Se arrancan con
+  `python -m logistica.jobs.planificador`.
 - `src/logistica/cli/`: menus de la consola. Se arranca con `python -m logistica`.
 - `src/logistica/container.py`: decide que implementacion usa cada interfaz.
 - `tests/` y `docs/`.
