@@ -81,6 +81,28 @@ MERGE (t)-[:DESDE]->(uo)
 MERGE (t)-[:HASTA]->(ud)
 """
 
+OPERADOR = """
+MERGE (o:Operador {id: $id})
+SET o.razon_social = $razon_social, o.pais = $pais, o.estado = $estado
+"""
+
+UBICACION = """
+MERGE (u:Ubicacion {id: $id})
+SET u.nombre = $nombre, u.tipo = $tipo, u.pais = $pais,
+    u.latitud = $latitud, u.longitud = $longitud
+"""
+
+# La relacion OPERA es la que conecta al operador con el envio, por el camino
+# real Envio -> Tramo -> Vehiculo <- Operador (D11). Sin ella, el requisito
+# "red de relaciones entre clientes, operadores y envios" no se puede resolver.
+VEHICULO = """
+MERGE (v:Vehiculo {id: $id})
+SET v.identificacion = $identificacion, v.tipo = $tipo,
+    v.medio_transporte = $medio_transporte, v.estado = $estado
+MERGE (o:Operador {id: $operador_id})
+MERGE (o)-[:OPERA]->(v)
+"""
+
 CONTENEDOR = """
 MERGE (co:Contenedor {id: $id})
 SET co.codigo_iso = $codigo_iso, co.tipo = $tipo, co.estado = $estado
@@ -100,6 +122,10 @@ PARAMETROS = {
     TRAMO: ("id", "envio_id", "vehiculo_id", "origen_id", "destino_id", "orden",
             "medio_transporte", "costo"),
     CONTENEDOR: ("id", "codigo_iso", "tipo", "estado"),
+    OPERADOR: ("id", "razon_social", "pais", "estado"),
+    UBICACION: ("id", "nombre", "tipo", "pais", "latitud", "longitud"),
+    VEHICULO: ("id", "operador_id", "identificacion", "tipo",
+               "medio_transporte", "estado"),
 }
 
 
@@ -158,7 +184,31 @@ class ProyectorNeo4j(Proyector):
         if tipo is TipoAgregado.CONTENEDOR:
             return CONTENEDOR
 
+        if tipo is TipoAgregado.OPERADOR:
+            return OPERADOR
+
+        if tipo is TipoAgregado.UBICACION:
+            return UBICACION
+
+        if tipo is TipoAgregado.VEHICULO:
+            return VEHICULO
+
         return None
+
+    @traducir_errores
+    def ids_de_etiqueta(self, etiqueta: str) -> set[str]:
+        """Ids de todos los nodos de una etiqueta. Es la mitad del grafo en la
+        comparacion con PostgreSQL."""
+        with self._driver.session() as sesion:
+            filas = sesion.run(f"MATCH (n:{etiqueta}) RETURN n.id AS id").data()
+        return {f["id"] for f in filas if f["id"]}
+
+    @traducir_errores
+    def borrar_todo(self) -> None:
+        """Vacia el grafo. Solo lo usa la reconstruccion completa, que despues
+        lo rearma desde PostgreSQL."""
+        with self._driver.session() as sesion:
+            sesion.run("MATCH (n) DETACH DELETE n")
 
     def cerrar(self) -> None:
         self._driver.close()

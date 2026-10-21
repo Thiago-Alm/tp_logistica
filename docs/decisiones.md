@@ -999,3 +999,60 @@ integridad: le dan a `MERGE` el indice que evita recorrer todos los nodos.
 - **Payloads tolerantes.** El proyector completa con `null` los parametros que
   el payload no trae, y lo registra en el log. Un evento encolado por una
   version anterior del codigo no debe trabar la cola para siempre.
+
+---
+
+## D36 — El chequeo de consistencia complementa al Outbox, no lo reemplaza
+
+**Estado:** acordada · **Fecha:** 21/10/2026 · **Alcance:** `sync/consistencia.py`
+
+El Outbox garantiza que ningun cambio hecho **a traves de los servicios** se
+pierda. Pero el grafo puede quedar distinto de PostgreSQL por tres caminos que
+el Outbox no cubre:
+
+1. **Un evento agoto sus reintentos.** El destino estuvo caido mas tiempo que
+   la politica de reintentos y el evento se vencio.
+2. **Alguien escribio en PostgreSQL sin pasar por los servicios.** Un INSERT a
+   mano, una carga masiva, o **los propios datos semilla del proyecto**, que se
+   cargan con SQL directo. Esos cambios no generan eventos.
+3. **Un nodo quedo huerfano** despues de que su fila se borrara en PostgreSQL.
+
+Por eso hay dos herramientas mas:
+
+**`verificar()`** compara, tipo por tipo, los ids de PostgreSQL contra los ids
+de los nodos del grafo, y reporta los que **faltan** y los que **sobran**,
+ademas de los eventos pendientes y los vencidos. No modifica nada.
+
+**`reconstruir()`** rearma el grafo entero leyendo PostgreSQL, sin pasar por el
+Outbox. Arma el mismo evento que habria emitido el servicio y lo aplica con el
+mismo proyector, de modo que el resultado es identico al de la propagacion
+normal.
+
+**Por que reconstruir es posible, y por que importa:** el grafo **no contiene
+ningun dato original**, solo una proyeccion de PostgreSQL. Si se perdiera
+entero, se puede rehacer. Esa propiedad es la que permite tratar su
+sincronizacion como **eventual** sin comprometer la correccion del sistema, y
+es el argumento central para defender por que es aceptable que el grafo quede
+momentaneamente desactualizado.
+
+**El detalle de `borrar_antes`:** `MERGE` agrega y corrige, pero **no borra**.
+Para eliminar un nodo sobrante hay que vaciar el grafo y rearmarlo. Reparar
+faltantes es barato; reparar sobrantes cuesta una reconstruccion completa.
+
+**Orden de reconstruccion.** Primero los maestros (ubicaciones, operadores,
+vehiculos), despues clientes y contenedores, y al final envios y tramos. Al
+reves, los `MERGE` de los envios crearian nodos de ubicacion vacios, sin
+propiedades, que recien se completarian despues.
+
+**Hueco que encontro esta pieza:** nada creaba los nodos `Operador` ni la
+relacion `OPERA`, porque ningun evento de negocio los menciona. Sin eso, el
+requisito "red de relaciones entre clientes, operadores y envios" **no se podia
+resolver**. Quedo claro el reparto: los datos **transaccionales** (envios,
+tramos, clientes, contenedores) se sincronizan por eventos, y los **maestros**
+(ubicaciones, vehiculos, operadores) por reconciliacion, que es como se hace en
+la practica porque cambian poco y en bloque.
+
+**Un repositorio aparte para esto.** `ConsistenciaRepository` existe porque la
+reconciliacion necesita ver el contenido completo de una tabla, sin filtros ni
+paginado: es una necesidad distinta de la de los casos de uso del negocio, y
+mezclarlas ensuciaria las interfaces de las entidades.

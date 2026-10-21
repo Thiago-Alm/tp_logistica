@@ -18,6 +18,7 @@ se deshace todo.
 from abc import ABC, abstractmethod
 
 from logistica.repositories.cliente_repository import ClienteRepository
+from logistica.repositories.consistencia_repository import ConsistenciaRepository
 from logistica.repositories.contenedor_repository import ContenedorRepository
 from logistica.repositories.envio_repository import EnvioRepository
 from logistica.repositories.outbox_repository import OutboxRepository
@@ -36,6 +37,7 @@ class UnidadDeTrabajo(ABC):
     contenedores: ContenedorRepository
     reportes_envio: ReporteEnvioRepository
     outbox: OutboxRepository
+    consistencia: ConsistenciaRepository
 
     def __enter__(self) -> "UnidadDeTrabajo":
         return self

@@ -25,6 +25,8 @@ from logistica.services.cliente_service import ClienteService
 from logistica.services.envio_service import EnvioService
 from logistica.services.reporte_service import ReporteService
 from logistica.services.usuario_service import UsuarioService
+from logistica.sync.consistencia import ChequeoDeConsistencia
+from logistica.sync.proyector_neo4j import ProyectorNeo4j
 from logistica.sync.worker import WorkerDeSincronizacion
 
 log = logging.getLogger(__name__)
@@ -102,9 +104,15 @@ class Contenedor:
         deriva de otra base. Agregar un destino nuevo es sumar un proyector a
         esta lista, sin tocar el worker (D35).
         """
-        from logistica.infrastructure.neo4j.conexion import conectar
-        from logistica.sync.proyector_neo4j import ProyectorNeo4j
+        return WorkerDeSincronizacion(self.unidad_de_trabajo, [self.proyector_neo4j])
 
-        return WorkerDeSincronizacion(
-            self.unidad_de_trabajo, [ProyectorNeo4j(conectar(self.settings))]
-        )
+    @cached_property
+    def proyector_neo4j(self) -> ProyectorNeo4j:
+        from logistica.infrastructure.neo4j.conexion import conectar
+
+        return ProyectorNeo4j(conectar(self.settings))
+
+    @cached_property
+    def chequeo_de_consistencia(self) -> ChequeoDeConsistencia:
+        """Compara PostgreSQL contra el grafo y permite reconstruirlo."""
+        return ChequeoDeConsistencia(self.unidad_de_trabajo, self.proyector_neo4j)

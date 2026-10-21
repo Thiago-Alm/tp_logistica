@@ -10,6 +10,7 @@ from logistica.cli import (
     menu_clientes,
     menu_envios,
     menu_reportes,
+    menu_sincronizacion,
     menu_usuarios,
 )
 from logistica.container import Contenedor
@@ -53,6 +54,13 @@ def main() -> int:
                     lambda: menu_envios.construir(contenedor.envios, contenedor.clientes),
                 ),
                 "4": ("Reportes", lambda: menu_reportes.construir(contenedor.reportes)),
+                "5": (
+                    "Sincronizacion entre motores",
+                    lambda: menu_sincronizacion.construir(
+                        contenedor.worker_de_sincronizacion,
+                        contenedor.chequeo_de_consistencia,
+                    ),
+                ),
             },
             salida="Salir",
         )

@@ -4,6 +4,9 @@ import logging
 from logistica.config import Settings
 from logistica.infrastructure.postgres.cliente_repository import PostgresClienteRepository
 from logistica.infrastructure.postgres.conexion import conectar
+from logistica.infrastructure.postgres.consistencia_repository import (
+    PostgresConsistenciaRepository,
+)
 from logistica.infrastructure.postgres.contenedor_repository import (
     PostgresContenedorRepository,
 )
@@ -39,6 +42,7 @@ class UnidadDeTrabajoPostgres(UnidadDeTrabajo):
         self.contenedores = PostgresContenedorRepository(self._conexion)
         self.reportes_envio = PostgresReporteEnvioRepository(self._conexion)
         self.outbox = PostgresOutboxRepository(self._conexion)
+        self.consistencia = PostgresConsistenciaRepository(self._conexion)
         return self
 
     def commit(self) -> None:
