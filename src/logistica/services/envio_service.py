@@ -14,6 +14,7 @@ from logistica.domain.envio import Envio, EstadoEnvio, PrioridadEnvio
 from logistica.domain.tramo import MedioTransporte, Tramo
 from logistica.exceptions import ConflictoDeDatos, NoEncontrado, ValidacionError
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
+from logistica.sync import eventos
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +84,9 @@ class EnvioService:
                     f"El cliente {cliente.razon_social} esta dado de baja"
                 )
             uow.envios.guardar(envio)
+            # Mismo criterio que en ClienteService: el evento entra en la
+            # transaccion del dato, no despues (D34).
+            uow.outbox.guardar(eventos.envio_creado(envio, envio.fecha_creacion))
             uow.commit()
         log.info("Envio registrado: %s para el cliente %s", envio.id, cliente_id)
         return envio
@@ -98,6 +102,9 @@ class EnvioService:
                 raise NoEncontrado(f"No existe el envio {envio_id}")
             envio.pasar_a(nuevo, momento)
             uow.envios.actualizar(envio)
+            uow.outbox.guardar(
+                eventos.envio_cambio_de_estado(envio, datetime.now(timezone.utc))
+            )
             uow.commit()
         log.info("Envio %s paso a %s", envio_id, nuevo.value)
         return envio
@@ -142,6 +149,7 @@ class EnvioService:
                 costo=costo,
             )
             uow.tramos.guardar(tramo)
+            uow.outbox.guardar(eventos.tramo_creado(tramo, datetime.now(timezone.utc)))
             uow.commit()
         log.info("Tramo %s agregado al envio %s (orden %s)", tramo.id, envio_id, tramo.orden)
         return tramo
@@ -181,6 +189,11 @@ class EnvioService:
             uow.envios.asociar_contenedor(envio_id, contenedor_id)
             contenedor.estado = EstadoContenedor.ASIGNADO
             uow.contenedores.actualizar(contenedor)
+            uow.outbox.guardar(
+                eventos.contenedor_asignado(
+                    envio_id, contenedor_id, datetime.now(timezone.utc)
+                )
+            )
             uow.commit()
         log.info("Contenedor %s asignado al envio %s", contenedor_id, envio_id)
         return contenedor

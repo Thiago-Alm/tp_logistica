@@ -899,3 +899,55 @@ para los reportes de envios.
 **Nota sobre `ConteoIncidentes.grupo`:** es siempre texto, incluso cuando el eje
 es el cliente, porque MongoDB guarda el UUID pero no la razon social, que vive
 en PostgreSQL. Resolver el nombre es tarea del servicio, no del repositorio.
+
+---
+
+## D34 — El evento del Outbox lo publica el SERVICIO, no el repositorio ni un trigger
+
+**Estado:** acordada · **Fecha:** 21/10/2026 · **Alcance:** `services/`, `sync/eventos.py`
+
+Cada operacion que cambia un dato que vive en mas de un motor encola su evento
+**dentro de la misma transaccion**, desde el servicio:
+
+```python
+with self._uow as uow:
+    uow.envios.guardar(envio)
+    uow.outbox.guardar(eventos.envio_creado(envio, envio.fecha_creacion))
+    uow.commit()
+```
+
+**El problema que resuelve (dual write).** La alternativa obvia seria guardar en
+PostgreSQL, hacer commit y despues escribir en Neo4j. Eso falla de dos maneras
+distintas: si el proceso se cae o Neo4j esta caido entre las dos operaciones,
+PostgreSQL tiene el dato y Neo4j no, **y no queda registro de que faltaba
+hacerlo**; y si la escritura a Neo4j falla, no se puede deshacer el commit, que
+ya ocurrio. Invertir el orden no mejora: deja nodos de envios que nunca
+existieron, que es peor, porque un dato de mas no tiene contra que compararse.
+La raiz es que **ninguna transaccion abarca las dos bases**.
+
+Con el Outbox hay una sola escritura atomica, en una sola base: si commitea,
+estan el dato y el evento; si falla, no esta ninguno. La propagacion es otro
+problema, y si falla el evento **sigue pendiente** para reintentarse.
+
+**Por que el servicio y no el repositorio.** El repositorio ve un `UPDATE` sobre
+`envio`; no puede distinguir si fue un cambio de estado, una correccion de
+prioridad o una baja. El servicio si, porque el decidio la operacion. El evento
+se arma donde esta la intencion, no donde esta el SQL. Ademas, ponerlo en el
+repositorio obligaria a acordarse de encolarlo en cada implementacion nueva.
+
+**Por que no un TRIGGER de PostgreSQL.** Seria imposible de olvidar, pero la
+logica de sincronizacion quedaria escrita en SQL dentro de la base, fuera del
+control de versiones del codigo, imposible de testear sin levantar PostgreSQL e
+invisible para quien lee el servicio. Tampoco sabria distinguir la intencion,
+por el mismo motivo que el repositorio.
+
+**Forma del payload** (`sync/eventos.py`): lleva solo lo que los destinos
+necesitan para construir el nodo o el documento, no la entidad entera. Mandar
+todo acoplaria el grafo a cambios de PostgreSQL que no le importan. Los
+`Decimal` viajan como texto y no como float, para no reintroducir el error de
+redondeo que D15 evita.
+
+**Consecuencia en los datos semilla:** las filas de `outbox` usaban
+`evento_tipo = 'ENVIO_CREADO'`, que repite el agregado dentro del tipo de
+evento. Son dos ejes independientes: quedo `agregado_tipo = 'ENVIO'` y
+`evento_tipo = 'CREADO'`.

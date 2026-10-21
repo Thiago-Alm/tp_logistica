@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from logistica.domain.cliente import Cliente, EstadoCliente
 from logistica.exceptions import ConflictoDeDatos, NoEncontrado
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
+from logistica.sync import eventos
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,10 @@ class ClienteService:
             if uow.clientes.obtener_por_cuit(cuit) is not None:
                 raise ConflictoDeDatos(f"Ya existe un cliente con CUIT {cuit}")
             uow.clientes.guardar(cliente)
+            # El evento viaja en la MISMA transaccion que el dato: si el commit
+            # falla, no queda ni el cliente ni el evento. Esa atomicidad es la
+            # razon de ser del Outbox (D34).
+            uow.outbox.guardar(eventos.cliente_creado(cliente, cliente.fecha_creacion))
             uow.commit()
         log.info("Cliente dado de alta: %s (%s)", cliente.razon_social, cliente.id)
         return cliente
@@ -74,6 +79,9 @@ class ClienteService:
                 cliente.pais = pais
             cliente.validar()
             uow.clientes.actualizar(cliente)
+            uow.outbox.guardar(
+                eventos.cliente_actualizado(cliente, datetime.now(timezone.utc))
+            )
             uow.commit()
         log.info("Cliente modificado: %s", id)
         return cliente
@@ -87,6 +95,9 @@ class ClienteService:
                 raise NoEncontrado(f"No existe el cliente {id}")
             cliente.dar_de_baja()
             uow.clientes.actualizar(cliente)
+            uow.outbox.guardar(
+                eventos.cliente_dado_de_baja(cliente, datetime.now(timezone.utc))
+            )
             uow.commit()
         log.info("Cliente dado de baja: %s", id)
         return cliente
@@ -98,6 +109,9 @@ class ClienteService:
                 raise NoEncontrado(f"No existe el cliente {id}")
             cliente.reactivar()
             uow.clientes.actualizar(cliente)
+            uow.outbox.guardar(
+                eventos.cliente_actualizado(cliente, datetime.now(timezone.utc))
+            )
             uow.commit()
         log.info("Cliente reactivado: %s", id)
         return cliente
