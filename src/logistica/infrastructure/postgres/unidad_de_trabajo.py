@@ -8,6 +8,7 @@ from logistica.infrastructure.postgres.contenedor_repository import (
     PostgresContenedorRepository,
 )
 from logistica.infrastructure.postgres.envio_repository import PostgresEnvioRepository
+from logistica.infrastructure.postgres.outbox_repository import PostgresOutboxRepository
 from logistica.infrastructure.postgres.reporte_envio_repository import (
     PostgresReporteEnvioRepository,
 )
@@ -37,6 +38,7 @@ class UnidadDeTrabajoPostgres(UnidadDeTrabajo):
         self.tramos = PostgresTramoRepository(self._conexion)
         self.contenedores = PostgresContenedorRepository(self._conexion)
         self.reportes_envio = PostgresReporteEnvioRepository(self._conexion)
+        self.outbox = PostgresOutboxRepository(self._conexion)
         return self
 
     def commit(self) -> None:
