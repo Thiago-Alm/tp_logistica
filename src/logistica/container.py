@@ -18,9 +18,11 @@ from logistica.config import Settings
 from logistica.config import settings as settings_por_defecto
 from logistica.infrastructure.postgres.unidad_de_trabajo import UnidadDeTrabajoPostgres
 from logistica.logging_config import setup_logging
+from logistica.repositories.alerta_repository import AlertaRepository
 from logistica.repositories.consulta_repository import ConsultaRepository
 from logistica.repositories.incidente_repository import IncidenteRepository
 from logistica.repositories.lectura_repository import LecturaRepository
+from logistica.repositories.umbral_repository import UmbralRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 from logistica.services.cliente_service import ClienteService
 from logistica.services.envio_service import EnvioService
@@ -85,13 +87,37 @@ class Contenedor:
         return CassandraLecturaRepository(conectar(self.settings))
 
     @cached_property
-    def incidentes(self) -> IncidenteRepository:
+    def base_mongo(self):
+        """Una sola conexion a MongoDB, compartida por los repositorios que la
+        usan. El driver de pymongo ya maneja un pool interno: abrir un cliente
+        por repositorio multiplicaria las conexiones sin ningun beneficio."""
         from logistica.infrastructure.mongo.conexion import conectar
+
+        return conectar(self.settings)
+
+    @cached_property
+    def incidentes(self) -> IncidenteRepository:
         from logistica.infrastructure.mongo.incidente_repository import (
             MongoIncidenteRepository,
         )
 
-        return MongoIncidenteRepository(conectar(self.settings))
+        return MongoIncidenteRepository(self.base_mongo)
+
+    @cached_property
+    def umbrales(self) -> UmbralRepository:
+        from logistica.infrastructure.mongo.umbral_repository import (
+            MongoUmbralRepository,
+        )
+
+        return MongoUmbralRepository(self.base_mongo)
+
+    @cached_property
+    def alertas(self) -> AlertaRepository:
+        from logistica.infrastructure.mongo.alerta_repository import (
+            MongoAlertaRepository,
+        )
+
+        return MongoAlertaRepository(self.base_mongo)
 
     # -- Sincronizacion ------------------------------------------------------
 

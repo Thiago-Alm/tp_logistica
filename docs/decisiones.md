@@ -633,22 +633,6 @@ silencio es una anomalia.
 
 ---
 
-## D25 — PENDIENTE: los umbrales configurados no tienen donde vivir
-
-**Estado:** ABIERTA · **Responsable:** Mati
-
-`alertas.detalle.umbral` guarda el umbral **que se violo**, despues del hecho.
-Pero "deteccion de anomalias de temperatura" necesita el umbral **configurado de
-antemano**, y no existe en ninguna coleccion ni tabla.
-
-Las dos salidas son: una constante en el codigo (defendible solo si se declara
-como simplificacion) o una coleccion de configuracion en MongoDB por `tipo` de
-contenedor, que es lo realista: un `REEFER_40` con pescado y un `DRY_20` con
-electronica no toleran lo mismo.
-
-**Sigue sin decidir.** Es el unico hueco funcional abierto del enunciado.
-
----
 
 # Decisiones de la primera rebanada vertical (19/10/2026)
 
@@ -1125,3 +1109,179 @@ constancia de que `RECORRE` no existe y de que la consulta funciona igual.
 - **Los parametros pasan de `str` a `UUID`**, como en todos los demas
   repositorios del proyecto. La conversion a texto se hace dentro de la
   implementacion, porque el grafo guarda los identificadores como cadenas.
+
+---
+
+## D25 — El umbral de temperatura vive en la colección `umbrales` de MongoDB
+
+**Estado:** acordada · **Responsable:** Mati · **Alcance:** MongoDB, detección de anomalías
+
+> Esta entrada reemplaza a la D25 abierta ("los umbrales configurados no tienen
+> dónde vivir").
+
+El umbral configurado de cada medición se guarda en una colección `umbrales` de
+MongoDB, con un documento por tipo de contenedor y magnitud:
+
+```js
+{ _id, tipo_contenedor: "REEFER_40", magnitud: "TEMPERATURA", minimo: -25.0, maximo: -15.0, unidad: "C" }
+db.umbrales.createIndex({ tipo_contenedor: 1, magnitud: 1 }, { unique: true })
+```
+
+La detección de anomalías consulta el umbral del tipo de contenedor de la lectura.
+Si el valor queda fuera de `[minimo, maximo]`, crea una alerta que guarda el limite
+traspasado en `alertas.detalle.umbral` (D38). Por ahora solo se cargan umbrales de
+`TEMPERATURA`, que es lo que pide el enunciado; el campo `magnitud` deja lugar para
+humedad y vibración sin cambiar el esquema.
+
+**Por qué una colección y no una constante en el código:**
+
+1. Un `REEFER_40` con pescado y un `DRY_20` con electrónica no toleran la misma
+   temperatura. Una constante única genera alertas falsas en uno y deja pasar
+   anomalías reales en el otro.
+2. Ajustar un umbral con una constante obliga a tocar el código y volver a desplegar.
+   Con una colección se cambia un documento.
+3. Cuesta una colección chica con dos documentos de prueba, así que no hace falta
+   defenderla como simplificación.
+
+**Por qué MongoDB y no PostgreSQL:**
+
+1. La alerta y su umbral viven en el mismo motor: el servicio lee el umbral y
+   escribe la alerta sin pasar por otra base.
+2. La estructura es chica y puede variar según la magnitud, que es el caso de uso
+   del esquema flexible.
+3. Es coherente con D12: la alerta guarda una copia del limite violado, de modo que
+   si el umbral se modifica después, las alertas históricas conservan el valor con
+   el que se generaron.
+
+**Costo asumido:** `tipo_contenedor` repite los valores de `contenedor.tipo` de
+PostgreSQL sin una clave foránea. Los valores válidos se copian del dominio al
+validador (D1): el dominio sigue siendo la fuente de verdad.
+
+**Restricciones:** validador `$jsonSchema` con los tipos y valores permitidos, regla
+`minimo < maximo` con `$expr`, e índice único por tipo de contenedor y magnitud. El
+rango es cerrado: un valor igual al mínimo o al máximo es normal.
+
+**Qué pasa si no hay umbral para un tipo de contenedor:** el servicio no genera
+alerta y deja un `WARNING` en el log, una sola vez por tipo. No se asume un valor
+por defecto: un valor inventado genera alertas falsas o silencia las verdaderas.
+
+**Implementación:** `domain/umbral.py`, `repositories/umbral_repository.py`,
+`infrastructure/mongo/umbral_repository.py` y `scripts/mongo/mongo_umbrales.js`.
+
+**Le cambia el trabajo a:**
+
+- Fran: confirmar la lista de valores de `contenedor.tipo`, que se repite en el
+  validador.
+- Umbi: ya no hace falta que su generador de datos produzca lecturas fuera de rango
+  para disparar alertas: lo hace el simulador (D39). Conviene acordar quién genera
+  qué para no duplicar.
+
+---
+
+## D38 — Detección de anomalías y alertas
+
+**Estado:** acordada · **Responsable:** Mati · **Alcance:** `domain/alerta.py`, `services/deteccion_anomalias_service.py`, `infrastructure/mongo/alerta_repository.py`
+
+Cierra el requisito "detección de anomalías de temperatura".
+
+**1. Cómo funciona.** `DeteccionAnomaliasService.evaluar(lectura)` busca el umbral
+del tipo de contenedor de la lectura y, si la temperatura lo viola, crea una
+`Alerta` en MongoDB. La lista de mediciones evaluadas tiene una sola fila
+(temperatura): sumar humedad o vibración es agregar otra.
+
+**2. El servicio no consulta PostgreSQL.** Recibe una función que dice de qué tipo
+es cada contenedor. El simulador la arma con su lista de sensores; un pipeline real
+la armaría con el repositorio de contenedores. No usa la `UnidadDeTrabajo`, porque
+alertas y umbrales están en otro motor y no comparten transacción con PostgreSQL.
+
+**3. Idempotencia.** El `_id` de la alerta es determinístico (`uuid5` de sensor,
+momento de la lectura en UTC con milisegundos y tipo). Reintentar la misma detección
+no duplica la alerta: `guardar` usa `$setOnInsert` con `upsert` y devuelve `True`
+si la creó y `False` si ya existía.
+
+**4. Severidad (supuesto nuevo).** Depende de cuánto se pasa el valor del límite,
+como fracción del ancho del rango: hasta 10 % es `BAJA`, hasta 25 % `MEDIA`, hasta
+50 % `ALTA` y más, `CRITICA`. Se usa una fracción y no grados para que valga igual
+con cualquier unidad y tamaño de rango. El enunciado no define la severidad.
+
+**5. La fecha de la alerta es la de la lectura**, no la del procesamiento: dos
+corridas del mismo dato dan la misma alerta.
+
+**Limitación aceptada:** se crea una alerta por cada lectura que viola el umbral.
+Una anomalía sostenida genera una alerta por lectura. Una mejora posible es una
+sola alerta abierta por sensor y tipo, que se cierre sola cuando el valor se
+normaliza; se dejó afuera porque exige un ciclo de vida de la alerta (reconocer,
+cerrar) que el enunciado no pide.
+
+**Le cambia el trabajo a:** nadie por ahora; los servicios que lean alertas usan
+`AlertaRepository.listar_abiertas` y `listar_por_sensor`.
+
+---
+
+## D39 — Simulador IoT
+
+**Estado:** acordada · **Responsable:** Mati · **Alcance:** `jobs/simulador_iot.py`
+
+Se ejecuta con `python -m logistica.jobs.simulador_iot`. Con `--ciclos 0` corre
+hasta Ctrl+C.
+
+**1. Qué hace en cada ciclo.** Genera una lectura por sensor, las guarda juntas con
+`LecturaRepository.guardar_lote` y después evalúa cada una con la detección (D38).
+Guarda antes de evaluar, para que una alerta nunca apunte a una lectura que no
+quedó persistida.
+
+**2. Modelo de los datos.** La temperatura vuelve hacia el centro del rango del
+umbral con algo de ruido. Con una probabilidad configurable se inyecta una
+anomalía: durante unos ciclos el valor queda fuera del rango, más seguido por
+arriba (corte de frío) que por abajo. La posición se mueve, la batería baja y la
+humedad y vibración varían poco. Con `--semilla` la secuencia se puede repetir.
+
+**3. El rango que se simula sale del umbral configurado** de cada tipo de
+contenedor (D25). Si un tipo no tiene umbral, se simula un rango por defecto y la
+detección avisa que no puede evaluarlo.
+
+**4. Fuente de los sensores (simplificación).** Se leen de PostgreSQL con una
+consulta directa, porque todavía no existe un `SensorRepository`. Cuando exista,
+se reemplaza. Alternativa: `--sensores-json archivo.json`, que no necesita
+PostgreSQL ni conocer el esquema.
+
+**5. Resiliencia.** Un ciclo que falla por un error de persistencia se registra y
+la simulación sigue. Si fallan 5 seguidos, se aborta.
+
+**6. Los momentos están en UTC con precisión de milisegundos**, que es lo que
+guarda Cassandra (D31).
+
+**Le cambia el trabajo a:** Fran (cuando exista `SensorRepository`, reemplazar la
+consulta directa) y Umbi (ver D25: acordar quién genera datos de prueba).
+
+---
+
+### Nota de integracion (Thiago, 27/10)
+
+Al probar el simulador contra las bases reales aparecieron tres cosas:
+
+1. **La semilla de umbrales cubria 2 de los 7 tipos de contenedor.** El `CHECK`
+   de `contenedor.tipo` en PostgreSQL admite `DRY_20`, `DRY_40`, `REEFER_20`,
+   `REEFER_40`, `OPEN_TOP_40`, `TANK_20` y `FLAT_RACK_40`; el script solo traia
+   `REEFER_40` y `DRY_20`. Consecuencia: la deteccion **se salteaba en silencio**
+   3 de los 5 sensores de prueba, guardando sus lecturas en Cassandra sin evaluar
+   ninguna. Se completaron los siete, con rangos justificados por tipo de carga, y
+   el validador de la coleccion ahora los admite a todos. Tras el arreglo, las
+   alertas de una corrida identica pasaron de 14 a 45.
+
+2. **Se descarto el alias `datetime.UTC`.** El codigo original lo usaba, pero ese
+   alias existe desde Python 3.11 y el proyecto declara `requires-python = ">=3.10"`
+   en `pyproject.toml`. Se mantiene `timezone.utc`, que es lo que usa el resto del
+   proyecto y funciona en las dos versiones. El aviso de `ruff` que motivo el
+   cambio no aparece con la configuracion real del repositorio.
+
+3. **Una sola conexion a MongoDB.** Los repositorios de incidentes, umbrales y
+   alertas comparten el cliente a traves de `Contenedor.base_mongo`. `pymongo` ya
+   maneja un pool interno: abrir un cliente por repositorio multiplicaria las
+   conexiones sin ningun beneficio.
+
+**Leccion que vale para la defensa:** una configuracion incompleta es peor que una
+ausente. Si el umbral no existiera, el sistema fallaria y alguien lo notaria; como
+existe para algunos tipos y no para otros, funcionaba "bien" y no evaluaba la mayor
+parte de las lecturas. Por eso el servicio registra un `WARNING` cuando no encuentra
+umbral, en vez de ignorar la medicion sin dejar rastro.
