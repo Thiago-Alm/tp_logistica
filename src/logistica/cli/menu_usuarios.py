@@ -1,10 +1,12 @@
 """Menu de usuarios y roles."""
 from getpass import getpass
+from uuid import UUID
 
 from logistica.cli import consola
 from logistica.domain.usuario import Usuario
 from logistica.exceptions import LogisticaError
 from logistica.services.cliente_service import ClienteService
+from logistica.services.sesion_service import SesionService
 from logistica.services.usuario_service import UsuarioService
 
 
@@ -25,7 +27,11 @@ def _mostrar(usuarios: list[Usuario]) -> None:
     )
 
 
-def construir(servicio: UsuarioService, clientes: ClienteService) -> None:
+def construir(
+    servicio: UsuarioService,
+    clientes: ClienteService,
+    sesiones: SesionService,
+) -> None:
     def alta() -> None:
         consola.titulo("Alta de usuario")
         roles = servicio.listar_roles()
@@ -82,15 +88,31 @@ def construir(servicio: UsuarioService, clientes: ClienteService) -> None:
         )
 
     def autenticar() -> None:
-        consola.titulo("Probar autenticacion")
+        consola.titulo("Iniciar sesion")
         email = consola.pedir("Email")
         password = getpass("  Contrasena (no se muestra): ")
         try:
             usuario = servicio.autenticar(email, password)
+            sesion_id = sesiones.iniciar(usuario.id)
         except LogisticaError as e:
             consola.error(str(e))
             return
         consola.exito(f"Autenticado: {usuario.nombre_completo}")
+        consola.aviso(f"Sesion creada: {sesion_id}")
+    def cerrar_sesion() -> None:
+        consola.titulo("Cerrar sesion")
+        texto = consola.pedir("ID de la sesion")
+
+        try:
+            sesion_id = UUID(texto)
+        except ValueError:
+            consola.error("El ID de la sesion no es valido.")
+            return
+
+        if sesiones.cerrar(sesion_id):
+            consola.exito("Sesion cerrada.")
+        else:
+            consola.aviso("La sesion no existe o ya vencio.")
 
     def baja() -> None:
         consola.titulo("Baja de usuario")
@@ -117,5 +139,6 @@ def construir(servicio: UsuarioService, clientes: ClienteService) -> None:
             "3": ("Listar roles", listar_roles),
             "4": ("Probar autenticacion", autenticar),
             "5": ("Baja de usuario", baja),
+            "6": ("Cerrar sesion", cerrar_sesion),
         },
     )

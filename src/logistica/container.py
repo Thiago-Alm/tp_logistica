@@ -84,6 +84,29 @@ class Contenedor:
     @cached_property
     def trazabilidad(self) -> EventoLogisticoService:
         return EventoLogisticoService(self.eventos_logisticos, self.unidad_de_trabajo)
+    @cached_property
+    def redis(self):
+        """Cliente Redis compartido por los servicios que lo necesiten."""
+        from redis import Redis
+
+        return Redis(
+            host=self.settings.redis_host,
+            port=self.settings.redis_port,
+        )
+
+    @cached_property
+    def sesiones(self):
+        """Servicio para crear, consultar y cerrar sesiones."""
+        from logistica.infrastructure.redis.sesion_repository import (
+            RedisSesionRepository,
+        )
+        from logistica.services.sesion_service import SesionService
+
+        return SesionService(
+            RedisSesionRepository(self.redis),
+            ttl_segundos=3600,
+        )
+
 
     # -- Cassandra y MongoDB -------------------------------------------------
     # Estos repositorios no pasan por la UnidadDeTrabajo: son otros motores y no

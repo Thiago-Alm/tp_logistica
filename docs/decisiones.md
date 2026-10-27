@@ -1399,6 +1399,30 @@ Un test de integración verifica que, cuando la emisión falla por límite de
 crédito, **no queda ni la factura, ni el movimiento, ni el saldo cambiado**.
 
 ---
+---
+
+## D42 — Sesiones activas en Redis
+
+**Estado:** implementada · **Responsable:** Umbi · **Alcance:** Redis y menú de usuarios
+
+Cada sesión se guarda en Redis como un Hash con la clave
+`sesion:<sesion_id>`. Contiene el identificador del usuario, la fecha
+de inicio, la fecha de vencimiento y el estado `ACTIVA`.
+
+El Hash se guarda junto con un TTL. Cuando vence, Redis elimina la clave.
+La sesión también puede cerrarse manualmente desde el menú de usuarios.
+
+La aplicación crea la sesión después de validar las credenciales.
+El menú principal todavía no exige una sesión activa para acceder.
+
+La duración usada actualmente es de una hora, como valor provisional
+pendiente de acordar con el grupo.
+
+**Por qué Redis:** permite consultar las sesiones rápidamente y gestionar
+su vencimiento automático mediante TTL.
+
+**Validación:** se probó crear, consultar y cerrar una sesión, y verificar
+su vencimiento. También se probó el inicio y cierre desde el menú.
 
 ### Otras decisiones de esta pieza
 

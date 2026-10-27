@@ -48,7 +48,11 @@ def main() -> int:
                 "1": ("Clientes", lambda: menu_clientes.construir(contenedor.clientes)),
                 "2": (
                     "Usuarios y roles",
-                    lambda: menu_usuarios.construir(contenedor.usuarios, contenedor.clientes),
+                    lambda: menu_usuarios.construir(
+    contenedor.usuarios,
+    contenedor.clientes,
+    contenedor.sesiones,
+),
                 ),
                 "3": (
                     "Envios y trayectos",
