@@ -221,15 +221,37 @@ y un **responsable**. Mientras digan "propuesta", no están cerradas.
 La tabla del documento del grupo decía "Tramo → Neo4j (relación entre
 ubicaciones)". El modelo implementado lo hace **nodo**, con `id` y `orden`.
 
-**Por qué el nodo es correcto:** en Neo4j una relación no puede ser extremo de
-otra relación. La consulta "historial de movimientos de un contenedor" requiere
-`(:Contenedor)-[:RECORRE]->(:Tramo)`, y eso obliga a que `Tramo` sea un nodo.
+**Por qué el nodo es correcto: un tramo se conecta con CUATRO entidades.**
+
+```
+(:Envio)-[:TIENE_TRAMO]->(:Tramo)-[:DESDE]->(:Ubicacion)
+                          (:Tramo)-[:HASTA]->(:Ubicacion)
+                          (:Tramo)-[:UTILIZA]->(:Vehiculo)
+```
+
+Una relación de Neo4j une exactamente **dos** nodos y no puede ser extremo de
+otra. Modelar el tramo como una relación entre las dos ubicaciones dejaría sin
+forma de expresar qué vehículo lo recorre ni a qué envío pertenece: habría que
+meter el `vehiculo_id` como propiedad de la relación, y entonces el vehículo
+dejaría de ser un nodo alcanzable, con lo cual la consulta
+`Envio → Tramo → Vehiculo ← Operador` —que es la que justifica tener Neo4j
+(D11)— sería imposible.
+
+Además el tramo tiene **identidad y propiedades propias** (`id`, `orden`,
+`medio_transporte`, `costo`), y se consulta por sí mismo.
+
+> **Corrección del 27/10.** La versión anterior de esta decisión justificaba el
+> nodo diciendo que hacía falta para colgar de él `(:Contenedor)-[:RECORRE]->`.
+> Esa relación terminó descartándose (D37), así que el argumento quedó apoyado
+> en algo que no existe. El fundamento real es el de arriba, que no depende de
+> ninguna relación opcional y es más fuerte.
 
 **Consecuencia:** la entidad `Ruta` del documento del grupo queda **subsumida en
 los tramos** y no se modela aparte. El recorrido de un envío se reconstruye
 siguiendo `(:Envio)-[:TIENE_TRAMO]->(:Tramo)`.
 
-**Acción:** corregir la tabla del documento del grupo, que hoy dice lo contrario.
+**Hecho el 27/10:** `docs/modelo_neo4j.md` y `docs/diagramas.md` quedaron
+alineados con el código, sin `RECORRE` y con `Tramo` en la tabla de nodos.
 
 ---
 
