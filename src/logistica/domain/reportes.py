@@ -80,3 +80,37 @@ class RutaConIncidentes:
 
     ruta: str
     cantidad: int
+@dataclass(frozen=True)
+class TramoDeRuta:
+    """Un tramo de la ruta de un envío."""
+
+    tramo_id: str
+    orden: int | None
+    medio_transporte: str | None
+    origen: str | None
+    destino: str | None
+    vehiculo: str | None
+
+
+@dataclass(frozen=True)
+class RelacionClienteEnvioOperador:
+    """Un envío de un cliente y un operador vinculado."""
+
+    cliente_id: str
+    cliente: str | None
+    envio_id: str
+    estado_envio: str | None
+    operador_id: str | None
+    operador: str | None
+
+
+@dataclass(frozen=True)
+class MovimientoDeContenedor:
+    """Un tramo vinculado a un contenedor."""
+
+    contenedor_id: str
+    envio_id: str | None
+    tramo_id: str
+    orden: int | None
+    origen: str | None
+    destino: str | None

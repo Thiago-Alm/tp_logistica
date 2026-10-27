@@ -1056,3 +1056,27 @@ la practica porque cambian poco y en bloque.
 reconciliacion necesita ver el contenido completo de una tabla, sin filtros ni
 paginado: es una necesidad distinta de la de los casos de uso del negocio, y
 mezclarlas ensuciaria las interfaces de las entidades.
+
+---
+
+## D37 — Consultas de lectura de Neo4j
+
+**Estado:** propuesta · **Responsable:** UMBI
+
+Se implementan tres consultas en `Neo4jConsultaRepository`:
+
+- Ruta de un envío: obtiene sus tramos y los ordena por `orden`.
+- Red de un cliente: obtiene sus envíos y los operadores vinculados
+  a través de los vehículos y tramos.
+- Tramos de un contenedor: consulta la relación `RECORRE`.
+
+En línea con D33, las consultas devuelven objetos definidos en
+`domain/reportes.py`. Se usan relaciones opcionales cuando pueden faltar
+datos en la proyección del grafo.
+
+**Validación:** las tres consultas se probaron con datos ficticios creados
+en Neo4j local, incluyendo una relación `RECORRE` creada para la prueba.
+
+**Pendiente de coordinación:** el proyector actual no crea `RECORRE` ni
+proyecta las fechas reales de los tramos. Por eso, la tercera consulta
+todavía no constituye un historial completo de movimientos reales.
