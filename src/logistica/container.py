@@ -30,6 +30,7 @@ from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 from logistica.services.cliente_service import ClienteService
 from logistica.services.envio_service import EnvioService
 from logistica.services.evento_logistico_service import EventoLogisticoService
+from logistica.services.facturacion_service import FacturacionService
 from logistica.services.reporte_service import ReporteService
 from logistica.services.usuario_service import UsuarioService
 from logistica.sync.consistencia import ChequeoDeConsistencia
@@ -71,6 +72,10 @@ class Contenedor:
     @cached_property
     def envios(self) -> EnvioService:
         return EnvioService(self.unidad_de_trabajo)
+
+    @cached_property
+    def facturacion(self) -> FacturacionService:
+        return FacturacionService(self.unidad_de_trabajo)
 
     @cached_property
     def reportes(self) -> ReporteService:

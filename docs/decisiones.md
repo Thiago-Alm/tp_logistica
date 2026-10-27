@@ -1343,3 +1343,80 @@ a 24 meses y el servicio usa el último año por defecto.
 
 **`anio_mes` se deriva, no se guarda.** Igual que `Lectura.dia` (D20): dos
 fuentes para el mismo dato se terminan contradiciendo.
+
+---
+
+## D41 — El saldo se guarda además del libro mayor, y la transacción los mantiene juntos
+
+**Estado:** acordada · **Fecha:** 27/10/2026 · **Alcance:** facturación y cuentas corrientes
+
+`cuenta_corriente.saldo` guarda el saldo, y `movimiento_cuenta` guarda cada
+asiento que lo formó. El saldo **podría derivarse** sumando los movimientos, así
+que guardarlo es una **denormalización deliberada**.
+
+**Por qué se guarda.** Mostrar el estado de cuenta de un titular, verificar su
+límite de crédito antes de facturar o listar las cuentas con deuda son
+operaciones frecuentes. Derivar el saldo en cada una obligaría a sumar todos los
+movimientos históricos cada vez, y esa suma crece sin límite mientras el titular
+opere.
+
+**Cuál es el riesgo, y cómo se controla.** El saldo y los movimientos pueden
+divergir si alguna escritura deja uno sin el otro. Por eso:
+
+1. **Las tres escrituras van en la misma transacción.** Emitir una factura es
+   `guardar(factura)` + `guardar(movimiento)` + `actualizar(cuenta)`, todas
+   dentro del mismo `with uow`. Si el commit falla, no queda ninguna. Es el caso
+   que justifica la Unidad de Trabajo (D28) y, con ella, haber elegido
+   PostgreSQL para esta parte del sistema.
+2. **Hay un control de integridad que los compara.** `verificar_saldos()` recorre
+   cada cuenta y contrasta el saldo guardado contra la suma de sus movimientos.
+   Devuelve solo las que no cuadran. Corre como proceso periódico cada 30
+   minutos y está disponible en el menú.
+
+Un test de integración verifica que, cuando la emisión falla por límite de
+crédito, **no queda ni la factura, ni el movimiento, ni el saldo cambiado**.
+
+---
+
+### Otras decisiones de esta pieza
+
+**El libro mayor solo se agrega.** Un `MovimientoCuenta` nunca se modifica ni se
+borra. Anular una factura **no borra** su asiento original: agrega uno de signo
+contrario. Corregir un error contable es otro asiento, no una edición, y así el
+histórico sigue explicando cómo se llegó al saldo actual.
+
+**El monto de un movimiento es siempre positivo; el sentido lo da el tipo.** Si
+además el monto pudiera ser negativo, un `DEBITO` de `-100` sería en realidad un
+crédito y habría dos formas de expresar lo mismo. El `CHECK (monto > 0)` de la
+base y la validación del dominio lo impiden en las dos capas.
+
+**Convención del signo del saldo:** negativo cuando el titular debe. Un `DEBITO`
+lo baja y un `CREDITO` lo sube. Es la convención de los datos semilla y la que
+usa `deuda`, que devuelve la deuda en positivo o cero.
+
+**La facturación automática es idempotente.** `facturar_envio()` consulta primero
+si el envío ya tiene factura y devuelve `None` si la tiene. Correr el proceso dos
+veces el mismo día no duplica nada. Aun así el planificador lo ejecuta bajo un
+lock de Redis (D14), porque dos instancias simultáneas podrían leer la lista de
+entregados antes de que la otra escriba su factura: la idempotencia protege de
+la repetición secuencial, el lock de la concurrencia.
+
+**Un envío que no se puede facturar no frena a los demás.** El proceso registra
+el motivo en el log y sigue con el siguiente. Si cortara, un solo envío mal
+cargado dejaría sin facturar a todos los que vienen después.
+
+**El cierre mensual no pone el saldo en cero.** El saldo es continuo y la deuda
+no desaparece a fin de mes. Lo que hace el cierre es marcar como `VENCIDA` cada
+factura cuyo vencimiento pasó y dejar el resumen del período. Una factura
+`VENCIDA` **sigue siendo cobrable**: solo `PAGADA` y `ANULADA` son estados
+finales.
+
+**El titular es polimórfico y no admite clave foránea.** `titular_tipo` +
+`titular_id` cubren CLIENTE, PROVEEDOR y OPERADOR (supuesto 4). PostgreSQL no
+puede declarar una FK sobre una referencia que apunta a tres tablas distintas,
+así que la existencia del titular la valida el servicio, según el criterio de
+D3. Es el precio de cumplir el requisito con una tabla en lugar de tres.
+
+**Los pagos parciales están contemplados.** Una factura pasa a `PAGADA` solo
+cuando la suma de sus pagos alcanza el importe total, y un pago que supere lo que
+resta se rechaza.

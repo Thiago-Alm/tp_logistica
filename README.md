@@ -13,7 +13,8 @@ Aplicacion de consola en Python con 5 motores: PostgreSQL, MongoDB, Neo4j, Redis
 7. Correr los tests: `pytest`
 8. Arrancar la aplicacion: `python -m logistica`
 9. En otra terminal, los procesos periodicos: `python -m logistica.jobs.planificador`
-   (propaga el Outbox cada 10 s y chequea la consistencia cada 30 min)
+   (Outbox cada 10 s, consistencia y saldos cada 30 min, facturacion diaria,
+   cierre mensual el dia 1)
 
 La contrasena de los cuatro usuarios de prueba es `demo1234`.
 

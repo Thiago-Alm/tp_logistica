@@ -9,6 +9,7 @@ from logistica.cli import (
     consola,
     menu_clientes,
     menu_envios,
+    menu_facturacion,
     menu_reportes,
     menu_sincronizacion,
     menu_usuarios,
@@ -57,8 +58,14 @@ def main() -> int:
                         contenedor.trazabilidad,
                     ),
                 ),
-                "4": ("Reportes", lambda: menu_reportes.construir(contenedor.reportes)),
-                "5": (
+                "4": (
+                    "Facturacion y cuentas corrientes",
+                    lambda: menu_facturacion.construir(
+                        contenedor.facturacion, contenedor.clientes
+                    ),
+                ),
+                "5": ("Reportes", lambda: menu_reportes.construir(contenedor.reportes)),
+                "6": (
                     "Sincronizacion entre motores",
                     lambda: menu_sincronizacion.construir(
                         contenedor.worker_de_sincronizacion,

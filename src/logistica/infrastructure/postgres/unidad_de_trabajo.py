@@ -11,6 +11,12 @@ from logistica.infrastructure.postgres.contenedor_repository import (
     PostgresContenedorRepository,
 )
 from logistica.infrastructure.postgres.envio_repository import PostgresEnvioRepository
+from logistica.infrastructure.postgres.facturacion_repository import (
+    PostgresCuentaCorrienteRepository,
+    PostgresFacturaRepository,
+    PostgresMovimientoCuentaRepository,
+    PostgresPagoRepository,
+)
 from logistica.infrastructure.postgres.outbox_repository import PostgresOutboxRepository
 from logistica.infrastructure.postgres.reporte_envio_repository import (
     PostgresReporteEnvioRepository,
@@ -43,6 +49,10 @@ class UnidadDeTrabajoPostgres(UnidadDeTrabajo):
         self.reportes_envio = PostgresReporteEnvioRepository(self._conexion)
         self.outbox = PostgresOutboxRepository(self._conexion)
         self.consistencia = PostgresConsistenciaRepository(self._conexion)
+        self.facturas = PostgresFacturaRepository(self._conexion)
+        self.pagos = PostgresPagoRepository(self._conexion)
+        self.cuentas = PostgresCuentaCorrienteRepository(self._conexion)
+        self.movimientos = PostgresMovimientoCuentaRepository(self._conexion)
         return self
 
     def commit(self) -> None:

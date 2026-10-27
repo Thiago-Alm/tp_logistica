@@ -31,6 +31,10 @@ log = logging.getLogger(__name__)
 # que determina cuanto tarda el grafo en ponerse al dia.
 SEGUNDOS_ENTRE_SINCRONIZACIONES = 10
 MINUTOS_ENTRE_CHEQUEOS = 30
+# La facturacion automatica corre de madrugada, cuando no hay operacion.
+HORA_DE_FACTURACION = 2
+# El cierre mensual, el primer dia de cada mes.
+HORA_DE_CIERRE = 3
 
 
 class Planificador:
@@ -88,6 +92,43 @@ class Planificador:
 
         self._con_lock("chequeo_consistencia", MINUTOS_ENTRE_CHEQUEOS * 60, tarea)
 
+    def facturar_entregados(self) -> None:
+        """Proceso periodico: genera las facturas de los envios entregados.
+
+        El lock es imprescindible, no una precaucion: dos ejecuciones
+        simultaneas podrian leer la lista de entregados antes de que la otra
+        escriba su factura, y emitir dos por el mismo envio (D14).
+        """
+
+        def tarea() -> None:
+            emitidas = self._contenedor.facturacion.facturar_entregados()
+            if emitidas:
+                log.info("Facturacion automatica: %s facturas", len(emitidas))
+
+        self._con_lock("facturacion_automatica", 3600, tarea)
+
+    def cerrar_mes(self) -> None:
+        """Proceso periodico: marca las facturas vencidas y resume las cuentas."""
+
+        def tarea() -> None:
+            log.info("Cierre mensual: %s", self._contenedor.facturacion.cerrar_mes())
+
+        self._con_lock("cierre_mensual", 3600, tarea)
+
+    def verificar_saldos(self) -> None:
+        """Control de integridad: el saldo guardado contra la suma de los
+        movimientos. Si difieren, hubo una escritura fuera de la transaccion."""
+
+        def tarea() -> None:
+            diferencias = self._contenedor.facturacion.verificar_saldos()
+            for cuenta, calculado in diferencias:
+                log.error(
+                    "Cuenta %s descuadrada: guardado=%s calculado=%s",
+                    cuenta.id, cuenta.saldo, calculado,
+                )
+
+        self._con_lock("verificacion_saldos", MINUTOS_ENTRE_CHEQUEOS * 60, tarea)
+
     # --- Arranque ---------------------------------------------------------
 
     def registrar(self) -> None:
@@ -110,11 +151,34 @@ class Planificador:
             coalesce=True,
             max_instances=1,
         )
-        # Pendientes de la semana 4, cuando existan los servicios:
-        #   - generacion automatica de facturas (cron diario)
-        #   - deteccion de sensores inactivos (cada N minutos, via Redis)
-        #   - cierre mensual de cuentas corrientes (cron mensual)
-        #   - prediccion diaria de riesgos (cron diario)
+        self._scheduler.add_job(
+            self.facturar_entregados,
+            "cron",
+            hour=HORA_DE_FACTURACION,
+            id="facturacion_automatica",
+            coalesce=True,
+            max_instances=1,
+        )
+        self._scheduler.add_job(
+            self.cerrar_mes,
+            "cron",
+            day=1,
+            hour=HORA_DE_CIERRE,
+            id="cierre_mensual",
+            coalesce=True,
+            max_instances=1,
+        )
+        self._scheduler.add_job(
+            self.verificar_saldos,
+            "interval",
+            minutes=MINUTOS_ENTRE_CHEQUEOS,
+            id="verificacion_saldos",
+            coalesce=True,
+            max_instances=1,
+        )
+        # Pendientes de esta semana, a cargo de los demas:
+        #   - deteccion de sensores inactivos (Umbi, via el heartbeat de Redis)
+        #   - prediccion diaria de riesgos (Mati, cron diario)
 
     def arrancar(self) -> None:
         self.registrar()
