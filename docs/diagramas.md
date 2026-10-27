@@ -27,15 +27,15 @@ etiqueta `Ubicacion`, pero cumplen distintos roles.
 flowchart TD
     E[Envio] -->|TIENE_TRAMO| T[Tramo]
     E -->|INCLUYE| C[Contenedor]
-    C -->|RECORRE| T
     T -->|DESDE| UO[Ubicacion de origen]
     T -->|HASTA| UD[Ubicacion de destino]
     T -->|UTILIZA| V[Vehiculo]
 ```
 
-Cada tramo tendrá un `id` y un `orden` dentro del envío.
-La relación `RECORRE` identifica los tramos de cada contenedor.
-Las fechas reales permitirán consultar los movimientos realizados.
+Cada tramo tiene un `id` y un `orden` dentro del envío.
+Los contenedores se relacionan con los tramos a través del envío.
+Esta relación no confirma que el contenedor haya recorrido
+efectivamente cada tramo.
 
 ## Redis: ciclo de una sesión
 
