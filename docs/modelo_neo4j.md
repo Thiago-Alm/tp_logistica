@@ -33,6 +33,7 @@ modelo de PostgreSQL y el proceso de sincronización del grupo.
 | Contenedor | Contenedor utilizado para transportar carga |
 | Envio | Envío realizado |
 | Vehiculo | Vehículo utilizado en el transporte |
+| Tramo | Etapa del recorrido de un envío |
 
 Cada nodo tendrá una propiedad `id` con el UUID de la entidad
 correspondiente en PostgreSQL.
@@ -83,23 +84,15 @@ tramos y ordenándolos por la propiedad `orden`.
 Las fechas previstas y reales, y la asignación de vehículos,
 se coordinarán con el modelo de PostgreSQL.
 
-## Movimientos históricos de contenedores
+## Movimientos de contenedores
 
-Se propone la relación:
+Los contenedores se relacionan con los tramos a través del envío:
 
-| Nodo de origen | Relación | Nodo de destino |
-|---|---|---|
-| Contenedor | RECORRE | Tramo |
+`Contenedor ← INCLUYE ← Envio → TIENE_TRAMO → Tramo`
 
-Esta relación indicará en qué tramos participó cada contenedor.
-No se supondrá que todos los contenedores de un envío recorren
-automáticamente todos sus tramos.
-
-Para consultar movimientos realizados, se necesitarán las fechas
-reales de los tramos y la confirmación de su ejecución.
-
-La fuente de estos datos y su sincronización deberán acordarse
-con el grupo.
+Esta relación permite consultar los tramos asociados al envío
+en el que está incluido un contenedor. Por sí sola, no confirma
+que el contenedor haya recorrido efectivamente cada tramo.
 
 ## Reglas de integridad propuestas
 
@@ -108,8 +101,7 @@ con el grupo.
 - Cada tramo pertenecerá a un único envío.
 - El orden de los tramos no se repetirá dentro del mismo envío.
 - Cada tramo tendrá una ubicación de origen y una de destino.
-- Un contenedor relacionado con un tramo deberá estar incluido
-  en el envío al que pertenece ese tramo.
+
 
 La unicidad de `id` se implementará mediante restricciones
 de Neo4j, que también permitirán buscar los nodos por su UUID.
