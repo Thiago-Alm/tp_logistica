@@ -18,6 +18,7 @@ from logistica.config import Settings
 from logistica.config import settings as settings_por_defecto
 from logistica.infrastructure.postgres.unidad_de_trabajo import UnidadDeTrabajoPostgres
 from logistica.logging_config import setup_logging
+from logistica.repositories.consulta_repository import ConsultaRepository
 from logistica.repositories.incidente_repository import IncidenteRepository
 from logistica.repositories.lectura_repository import LecturaRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
@@ -116,3 +117,12 @@ class Contenedor:
     def chequeo_de_consistencia(self) -> ChequeoDeConsistencia:
         """Compara PostgreSQL contra el grafo y permite reconstruirlo."""
         return ChequeoDeConsistencia(self.unidad_de_trabajo, self.proyector_neo4j)
+    @cached_property
+    def consultas_grafo(self) -> ConsultaRepository:
+        """Repositorio para consultar la red logística en Neo4j."""
+        from logistica.infrastructure.neo4j.conexion import conectar
+        from logistica.infrastructure.neo4j.consulta_repository import (
+            Neo4jConsultaRepository,
+        )
+
+        return Neo4jConsultaRepository(conectar(self.settings))

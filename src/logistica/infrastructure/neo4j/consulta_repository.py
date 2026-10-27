@@ -8,9 +8,10 @@ from logistica.domain.reportes import (
     TramoDeRuta,
 )
 from logistica.infrastructure.neo4j.conexion import traducir_errores
+from logistica.repositories.consulta_repository import ConsultaRepository
 
 
-class Neo4jConsultaRepository:
+class Neo4jConsultaRepository(ConsultaRepository):
     def __init__(self, driver: Driver) -> None:
         self._driver = driver
 
