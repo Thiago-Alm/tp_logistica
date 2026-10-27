@@ -80,6 +80,8 @@ class RutaConIncidentes:
 
     ruta: str
     cantidad: int
+
+
 @dataclass(frozen=True)
 class TramoDeRuta:
     """Un tramo de la ruta de un envío."""

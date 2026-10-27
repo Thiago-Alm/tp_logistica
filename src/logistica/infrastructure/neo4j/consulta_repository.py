@@ -1,5 +1,7 @@
 """Consultas de lectura del grafo de Neo4j."""
 
+from uuid import UUID
+
 from neo4j import Driver
 
 from logistica.domain.reportes import (
@@ -16,7 +18,7 @@ class Neo4jConsultaRepository(ConsultaRepository):
         self._driver = driver
 
     @traducir_errores
-    def ruta_de_envio(self, envio_id: str) -> list[TramoDeRuta]:
+    def ruta_de_envio(self, envio_id: UUID) -> list[TramoDeRuta]:
         """Devuelve los tramos de un envío ordenados por su posición."""
         consulta = """
         MATCH (e:Envio {id: $envio_id})-[:TIENE_TRAMO]->(t:Tramo)
@@ -35,8 +37,9 @@ class Neo4jConsultaRepository(ConsultaRepository):
         with self._driver.session() as sesion:
             filas = sesion.run(consulta, envio_id=str(envio_id)).data()
             return [TramoDeRuta(**fila) for fila in filas]
+
     @traducir_errores
-    def red_de_cliente(self, cliente_id: str) -> list[RelacionClienteEnvioOperador]:
+    def red_de_cliente(self, cliente_id: UUID) -> list[RelacionClienteEnvioOperador]:
         """Devuelve los envíos del cliente y sus operadores vinculados."""
         consulta = """
         MATCH (cliente:Cliente {id: $cliente_id})-[:SOLICITA]->(envio:Envio)
@@ -55,15 +58,27 @@ class Neo4jConsultaRepository(ConsultaRepository):
         with self._driver.session() as sesion:
             filas = sesion.run(consulta, cliente_id=str(cliente_id)).data()
             return [RelacionClienteEnvioOperador(**fila) for fila in filas]
+
     @traducir_errores
     def movimientos_de_contenedor(
-        self, contenedor_id: str
+        self, contenedor_id: UUID
     ) -> list[MovimientoDeContenedor]:
-        """Devuelve los tramos vinculados a un contenedor."""
+        """Devuelve los tramos vinculados a un contenedor.
+
+        El recorrido se arma por el camino Contenedor <- Envio -> Tramo y no por
+        una relacion directa Contenedor-RECORRE->Tramo. El modelo inicial
+        proponia esa relacion, pero no hay en PostgreSQL ningun dato que diga
+        por que tramos concretos paso cada contenedor: solo se sabe en que
+        envios estuvo (envio_contenedor) y que tramos tuvo cada envio. Una
+        relacion RECORRE derivada de esos dos datos no agregaria informacion
+        que el camino no tenga ya, y habria que mantenerla sincronizada (D37).
+
+        El detalle fino de por donde paso fisicamente un contenedor vive en
+        Cassandra, en eventos_por_contenedor.
+        """
         consulta = """
         MATCH (contenedor:Contenedor {id: $contenedor_id})
-              -[:RECORRE]->(tramo:Tramo)
-        OPTIONAL MATCH (envio:Envio)-[:TIENE_TRAMO]->(tramo)
+              <-[:INCLUYE]-(envio:Envio)-[:TIENE_TRAMO]->(tramo:Tramo)
         OPTIONAL MATCH (tramo)-[:DESDE]->(origen:Ubicacion)
         OPTIONAL MATCH (tramo)-[:HASTA]->(destino:Ubicacion)
         RETURN contenedor.id AS contenedor_id,

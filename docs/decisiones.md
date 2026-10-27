@@ -1061,22 +1061,67 @@ mezclarlas ensuciaria las interfaces de las entidades.
 
 ## D37 — Consultas de lectura de Neo4j
 
-**Estado:** propuesta · **Responsable:** UMBI
+**Estado:** acordada · **Responsable:** Umbi (correcciones de Thiago el 27/10)
+**Alcance:** `infrastructure/neo4j/consulta_repository.py`
 
-Se implementan tres consultas en `Neo4jConsultaRepository`:
+Se implementan en `Neo4jConsultaRepository` las tres consultas avanzadas que
+pide el enunciado:
 
-- Ruta de un envío: obtiene sus tramos y los ordena por `orden`.
-- Red de un cliente: obtiene sus envíos y los operadores vinculados
-  a través de los vehículos y tramos.
-- Tramos de un contenedor: consulta la relación `RECORRE`.
+- **Ruta completa de un envio:** sus tramos, ordenados por `orden`, con origen,
+  destino, medio de transporte y vehiculo.
+- **Red de relaciones cliente-operador-envio:** los envios de un cliente y los
+  operadores vinculados, recorriendo
+  `Envio -> Tramo -> Vehiculo <- Operador`. Son los tres saltos que justifican
+  tener un motor de grafos: en SQL es un join de cuatro tablas que empeora si se
+  quiere profundidad variable.
+- **Historial de movimientos de un contenedor:** los tramos por los que paso.
 
-En línea con D33, las consultas devuelven objetos definidos en
-`domain/reportes.py`. Se usan relaciones opcionales cuando pueden faltar
-datos en la proyección del grafo.
+En linea con D33, las consultas devuelven objetos de `domain/reportes.py` y no
+diccionarios ni tuplas. Se usan `OPTIONAL MATCH` donde la proyeccion puede
+todavia no tener el dato, para que la consulta devuelva el envio igual aunque
+le falte, por ejemplo, el operador.
 
-**Validación:** las tres consultas se probaron con datos ficticios creados
-en Neo4j local, incluyendo una relación `RECORRE` creada para la prueba.
+---
 
-**Pendiente de coordinación:** el proyector actual no crea `RECORRE` ni
-proyecta las fechas reales de los tramos. Por eso, la tercera consulta
-todavía no constituye un historial completo de movimientos reales.
+### Correccion del 27/10: la relacion `RECORRE` no existe
+
+La consulta de movimientos de un contenedor estaba escrita sobre
+`(:Contenedor)-[:RECORRE]->(:Tramo)`, una relacion que **ningun proyector
+crea**. El modelo inicial de Neo4j la proponia, pero nunca se implemento.
+Resultado: la consulta devolvia **siempre una lista vacia**, sin error, y el
+requisito "historial completo de movimientos de un contenedor" no funcionaba.
+Neo4j incluso emitia una advertencia de que el tipo de relacion no existia, que
+pasaba desapercibida porque el driver no la trata como error.
+
+**Por que no se agrego la relacion, y se cambio la consulta.** No hay en
+PostgreSQL ningun dato que diga por que tramos concretos paso cada contenedor.
+Solo se sabe en que envios estuvo (`envio_contenedor`) y que tramos tuvo cada
+envio (`tramo.envio_id`). Una relacion `RECORRE` derivada de esos dos datos no
+agregaria ninguna informacion que el camino
+`(:Contenedor)<-[:INCLUYE]-(:Envio)-[:TIENE_TRAMO]->(:Tramo)` no tenga ya, y
+habria que mantenerla sincronizada en el proyector y en la reconstruccion. Es
+complejidad sin contrapartida.
+
+El modelo inicial anotaba, con buen criterio, que "no se supondra que todos los
+contenedores de un envio recorren automaticamente todos sus tramos". La
+observacion es correcta, pero **ese detalle fino no existe en PostgreSQL**: vive
+en Cassandra, en `eventos_por_contenedor`, que registra el movimiento real de
+cada contenedor. El grafo responde lo que puede responder con los datos que
+proyecta, y la granularidad mayor se consulta donde esta.
+
+**Leccion para la defensa:** una consulta que devuelve vacio no siempre es una
+consulta sin resultados. Antes de dar por buena una consulta sobre un grafo
+conviene verificar que las relaciones que nombra existan de verdad:
+
+```cypher
+MATCH ()-[r]->() RETURN type(r) AS tipo, count(*) AS cantidad ORDER BY cantidad DESC
+```
+
+Hay un test de regresion (`test_el_grafo_no_tiene_la_relacion_recorre`) que deja
+constancia de que `RECORRE` no existe y de que la consulta funciona igual.
+
+### Otras correcciones
+
+- **Los parametros pasan de `str` a `UUID`**, como en todos los demas
+  repositorios del proyecto. La conversion a texto se hace dentro de la
+  implementacion, porque el grafo guarda los identificadores como cadenas.

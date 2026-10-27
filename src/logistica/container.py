@@ -117,6 +117,7 @@ class Contenedor:
     def chequeo_de_consistencia(self) -> ChequeoDeConsistencia:
         """Compara PostgreSQL contra el grafo y permite reconstruirlo."""
         return ChequeoDeConsistencia(self.unidad_de_trabajo, self.proyector_neo4j)
+
     @cached_property
     def consultas_grafo(self) -> ConsultaRepository:
         """Repositorio para consultar la red logística en Neo4j."""
