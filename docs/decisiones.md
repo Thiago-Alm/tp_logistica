@@ -1285,3 +1285,61 @@ ausente. Si el umbral no existiera, el sistema fallaria y alguien lo notaria; co
 existe para algunos tipos y no para otros, funcionaba "bien" y no evaluaba la mayor
 parte de las lecturas. Por eso el servicio registra un `WARNING` cuando no encuentra
 umbral, en vez de ignorar la medicion sin dejar rastro.
+
+---
+
+## D40 — La traza de eventos logísticos se escribe a través del Outbox
+
+**Estado:** acordada · **Fecha:** 27/10/2026 · **Responsable:** Fran (implementado por Thiago)
+**Alcance:** `domain/evento_logistico.py`, `sync/proyector_cassandra.py`, Cassandra
+
+El enunciado pide el "historial completo de eventos" y el "seguimiento temporal
+de cada envío". Esa traza vive en Cassandra, en las tablas `eventos_por_envio` y
+`eventos_por_contenedor`, y se alimenta de **dos fuentes distintas**:
+
+| Origen | Tipos | Cómo llega a Cassandra |
+|---|---|---|
+| Automático | `CARGA_INICIADA`, `EN_TRANSITO`, `EN_PUERTO`, `ENTREGADO`, `CANCELADO` | El cambio de estado del envío genera un evento en el Outbox, y el `ProyectorCassandra` lo traduce |
+| Manual | `ADUANA`, `RETRASO`, `DESCARGA` | Un operador los registra con `EventoLogisticoService.registrar()` |
+
+**Por qué a través del Outbox y no escribiendo directo desde el servicio.** Sería
+más corto que `EnvioService.cambiar_estado()` guardara el envío en PostgreSQL y
+después escribiera el evento en Cassandra. Pero eso es exactamente el *dual
+write* que el Outbox existe para evitar (D34): entre el commit y la escritura en
+Cassandra hay una ventana en la que el envío cambia de estado y **la traza se
+pierde para siempre**, sin que nadie se entere. Pasando por el Outbox, si
+Cassandra está caída el evento queda pendiente y se reintenta.
+
+Esto convierte a Cassandra en el **segundo destino** del worker, junto a Neo4j.
+Los dos contienen datos derivados de PostgreSQL. MongoDB sigue sin proyector
+porque es dueño de sus entidades (D35).
+
+**Idempotencia.** El `evento_id` que se escribe en Cassandra **no es un uuid4**:
+se deriva del id del evento del Outbox con `uuid5`. Como `evento_id` es parte de
+la clave primaria de las dos tablas, reprocesar el mismo evento pisa la misma
+fila en lugar de agregar una nueva. Con un uuid4, cada reintento sumaría una
+entrada repetida a la traza. Hay un test que lo verifica.
+
+**Por qué no se permite cargar a mano un tipo automático.** Si un operador
+pudiera registrar un `ENTREGADO`, la traza tendría dos entradas para el mismo
+hecho —la del operador y la del proyector— y dejaría de ser una fuente
+confiable. `registrar()` rechaza esos tipos con un error explícito.
+
+**Doble escritura, otra vez a propósito.** Cada evento se escribe en las dos
+tablas, porque Cassandra no hace JOIN y cada consulta necesita su propia tabla
+(mismo criterio que `Lectura`, D31). Si el evento no tiene contenedor, solo se
+escribe en `eventos_por_envio`: sin contenedor no hay clave de partición para la
+segunda.
+
+**Nivel de consistencia `QUORUM`, no `ONE`.** A diferencia de una lectura de
+sensor suelta, cuya pérdida es tolerable frente al volumen, **la trazabilidad no
+puede perder eventos**: es la que responde "qué le pasó a este envío".
+
+**Rango obligatorio al consultar el recorrido de un contenedor.** La partición de
+`eventos_por_contenedor` lleva un bucket mensual, porque un contenedor se
+reutiliza durante años y su historial no está acotado. Una consulta sin rango
+dispararía una consulta por cada mes en servicio: el repositorio limita el rango
+a 24 meses y el servicio usa el último año por defecto.
+
+**`anio_mes` se deriva, no se guarda.** Igual que `Lectura.dia` (D20): dos
+fuentes para el mismo dato se terminan contradiciendo.

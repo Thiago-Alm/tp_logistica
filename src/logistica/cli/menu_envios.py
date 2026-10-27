@@ -4,10 +4,12 @@ from decimal import Decimal, InvalidOperation
 
 from logistica.cli import consola
 from logistica.domain.envio import Envio, EstadoEnvio, PrioridadEnvio
+from logistica.domain.evento_logistico import TipoEventoLogistico
 from logistica.domain.tramo import MedioTransporte
 from logistica.exceptions import LogisticaError
 from logistica.services.cliente_service import ClienteService
 from logistica.services.envio_service import EnvioService
+from logistica.services.evento_logistico_service import EventoLogisticoService
 
 
 def _fila(envio: Envio) -> list[str]:
@@ -53,7 +55,11 @@ def _buscar_envio(servicio: EnvioService, clientes: ClienteService) -> Envio | N
     return coincidencias[0]
 
 
-def construir(servicio: EnvioService, clientes: ClienteService) -> None:
+def construir(
+    servicio: EnvioService,
+    clientes: ClienteService,
+    trazabilidad: EventoLogisticoService,
+) -> None:
     def registrar() -> None:
         consola.titulo("Registrar envio")
         activos = clientes.listar(solo_activos=True)
@@ -196,6 +202,50 @@ def construir(servicio: EnvioService, clientes: ClienteService) -> None:
             return
         consola.exito(f"Contenedor {asignado.codigo_iso} asignado.")
 
+    def ver_historial() -> None:
+        consola.titulo("Historial de eventos del envio")
+        envio = _buscar_envio(servicio, clientes)
+        if envio is None:
+            return
+        eventos = trazabilidad.historial(envio.id)
+        if not eventos:
+            consola.aviso("Sin eventos. Corre la sincronizacion para que se propaguen.")
+            return
+        consola.tabla(
+            ["MOMENTO", "TIPO", "DESCRIPCION", "UBICACION"],
+            [
+                [
+                    e.momento_utc.strftime("%Y-%m-%d %H:%M"),
+                    e.tipo.value,
+                    e.descripcion[:40],
+                    e.ubicacion_nombre or "-",
+                ]
+                for e in eventos
+            ],
+        )
+
+    def registrar_evento() -> None:
+        consola.titulo("Registrar evento manual")
+        consola.aviso(
+            "Los eventos de cambio de estado los genera el sistema: aca solo van "
+            "los que no puede deducir."
+        )
+        envio = _buscar_envio(servicio, clientes)
+        if envio is None:
+            return
+        manuales = [t for t in TipoEventoLogistico if not t.es_automatico()]
+        tipo = _elegir(manuales, lambda t: t.value, "Tipo de evento")
+        if tipo is None:
+            return
+        try:
+            trazabilidad.registrar(
+                envio.id, tipo, consola.pedir("Descripcion")
+            )
+        except LogisticaError as e:
+            consola.error(str(e))
+            return
+        consola.exito(f"Evento {tipo.value} registrado.")
+
     consola.menu(
         "Envios",
         {
@@ -207,5 +257,7 @@ def construir(servicio: EnvioService, clientes: ClienteService) -> None:
             "6": ("Listar por cliente", listar_por_cliente),
             "7": ("Listar por estado", listar_por_estado),
             "8": ("Listar demorados", listar_demorados),
+            "9": ("Historial de eventos (trazabilidad)", ver_historial),
+            "10": ("Registrar evento manual", registrar_evento),
         },
     )

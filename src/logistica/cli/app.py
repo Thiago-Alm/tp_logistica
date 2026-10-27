@@ -51,7 +51,11 @@ def main() -> int:
                 ),
                 "3": (
                     "Envios y trayectos",
-                    lambda: menu_envios.construir(contenedor.envios, contenedor.clientes),
+                    lambda: menu_envios.construir(
+                        contenedor.envios,
+                        contenedor.clientes,
+                        contenedor.trazabilidad,
+                    ),
                 ),
                 "4": ("Reportes", lambda: menu_reportes.construir(contenedor.reportes)),
                 "5": (

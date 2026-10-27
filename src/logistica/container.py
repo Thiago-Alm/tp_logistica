@@ -20,15 +20,20 @@ from logistica.infrastructure.postgres.unidad_de_trabajo import UnidadDeTrabajoP
 from logistica.logging_config import setup_logging
 from logistica.repositories.alerta_repository import AlertaRepository
 from logistica.repositories.consulta_repository import ConsultaRepository
+from logistica.repositories.evento_logistico_repository import (
+    EventoLogisticoRepository,
+)
 from logistica.repositories.incidente_repository import IncidenteRepository
 from logistica.repositories.lectura_repository import LecturaRepository
 from logistica.repositories.umbral_repository import UmbralRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 from logistica.services.cliente_service import ClienteService
 from logistica.services.envio_service import EnvioService
+from logistica.services.evento_logistico_service import EventoLogisticoService
 from logistica.services.reporte_service import ReporteService
 from logistica.services.usuario_service import UsuarioService
 from logistica.sync.consistencia import ChequeoDeConsistencia
+from logistica.sync.proyector_cassandra import ProyectorCassandra
 from logistica.sync.proyector_neo4j import ProyectorNeo4j
 from logistica.sync.worker import WorkerDeSincronizacion
 
@@ -71,6 +76,10 @@ class Contenedor:
     def reportes(self) -> ReporteService:
         return ReporteService(self.unidad_de_trabajo)
 
+    @cached_property
+    def trazabilidad(self) -> EventoLogisticoService:
+        return EventoLogisticoService(self.eventos_logisticos, self.unidad_de_trabajo)
+
     # -- Cassandra y MongoDB -------------------------------------------------
     # Estos repositorios no pasan por la UnidadDeTrabajo: son otros motores y no
     # comparten transaccion con PostgreSQL (la coherencia entre bases la cubre el
@@ -78,13 +87,28 @@ class Contenedor:
     # aunque todavia no esten instalados los drivers.
 
     @cached_property
-    def lecturas(self) -> LecturaRepository:
+    def sesion_cassandra(self):
+        """Una sola sesion de Cassandra, compartida por los repositorios que la
+        usan. El driver ya maneja su propio pool de conexiones."""
         from logistica.infrastructure.cassandra.conexion import conectar
+
+        return conectar(self.settings)
+
+    @cached_property
+    def lecturas(self) -> LecturaRepository:
         from logistica.infrastructure.cassandra.lectura_repository import (
             CassandraLecturaRepository,
         )
 
-        return CassandraLecturaRepository(conectar(self.settings))
+        return CassandraLecturaRepository(self.sesion_cassandra)
+
+    @cached_property
+    def eventos_logisticos(self) -> EventoLogisticoRepository:
+        from logistica.infrastructure.cassandra.evento_logistico_repository import (
+            CassandraEventoLogisticoRepository,
+        )
+
+        return CassandraEventoLogisticoRepository(self.sesion_cassandra)
 
     @cached_property
     def base_mongo(self):
@@ -125,13 +149,22 @@ class Contenedor:
     def worker_de_sincronizacion(self) -> WorkerDeSincronizacion:
         """El worker que vacia el Outbox hacia los demas motores.
 
-        Hoy el unico proyector es el de Neo4j: es el unico motor que contiene
-        una PROYECCION de datos de PostgreSQL. MongoDB no necesita proyector
-        porque es dueno de sus entidades (incidentes, alertas, chat): nadie las
-        deriva de otra base. Agregar un destino nuevo es sumar un proyector a
-        esta lista, sin tocar el worker (D35).
+        Hay dos destinos, y los dos contienen datos DERIVADOS de PostgreSQL:
+        Neo4j proyecta la red de relaciones, y Cassandra la traza de eventos
+        logisticos de cada envio (D40).
+
+        MongoDB no necesita proyector porque es dueno de sus entidades
+        (incidentes, alertas, chat): nadie las deriva de otra base. Agregar un
+        destino nuevo es sumar un proyector a esta lista, sin tocar el worker
+        (D35).
         """
-        return WorkerDeSincronizacion(self.unidad_de_trabajo, [self.proyector_neo4j])
+        return WorkerDeSincronizacion(
+            self.unidad_de_trabajo, [self.proyector_neo4j, self.proyector_cassandra]
+        )
+
+    @cached_property
+    def proyector_cassandra(self) -> ProyectorCassandra:
+        return ProyectorCassandra(self.eventos_logisticos)
 
     @cached_property
     def proyector_neo4j(self) -> ProyectorNeo4j:
