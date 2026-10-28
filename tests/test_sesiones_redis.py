@@ -1,10 +1,12 @@
 """Pruebas de sesiones usando Redis."""
 
+import time
 from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from redis import Redis
+from redis.exceptions import ConnectionError, TimeoutError
 
 from logistica.config import settings
 from logistica.infrastructure.redis.sesion_repository import RedisSesionRepository
@@ -13,9 +15,18 @@ from logistica.services.sesion_service import SesionService
 
 @pytest.fixture
 def cliente_redis():
-    cliente = Redis(host=settings.redis_host, port=settings.redis_port)
-    yield cliente
-    cliente.close()
+    cliente = Redis(
+        host=settings.redis_host, port=settings.redis_port,
+        socket_connect_timeout=1, socket_timeout=1,
+    )
+    try:
+        try:
+            cliente.ping()
+        except (ConnectionError, TimeoutError):
+            pytest.skip("Redis no disponible: docker compose up -d redis")
+        yield cliente
+    finally:
+        cliente.close()
 
 
 def test_crear_consultar_y_cerrar_sesion(cliente_redis):
@@ -52,3 +63,17 @@ def test_duracion_invalida(cliente_redis):
 
     with pytest.raises(ValueError):
         SesionService(repositorio, ttl_segundos=-1)
+
+
+def test_sesion_vence_realmente(cliente_redis):
+    servicio = SesionService(RedisSesionRepository(cliente_redis), ttl_segundos=1)
+    sesion_id = servicio.iniciar(uuid4())
+    try:
+        assert servicio.consultar(sesion_id) is not None
+        limite = time.monotonic() + 3
+        while servicio.consultar(sesion_id) is not None and time.monotonic() < limite:
+            time.sleep(0.05)
+        assert servicio.consultar(sesion_id) is None
+        assert servicio.cerrar(sesion_id) is False
+    finally:
+        cliente_redis.delete(f"sesion:{sesion_id}")

@@ -1424,6 +1424,22 @@ su vencimiento automático mediante TTL.
 **Validación:** se probó crear, consultar y cerrar una sesión, y verificar
 su vencimiento. También se probó el inicio y cierre desde el menú.
 
+### Revision de sesiones — rama umbi-sesiones
+
+Se conserva el Hash, el TTL de una hora y la creacion posterior a autenticar.
+El TTL debe ser un entero positivo (no se aceptan booleanos ni fracciones).
+Se mantiene ValueError para configuraciones invalidas, compatible con el contrato previo.
+
+El repositorio traduce errores de Redis a ErrorDePersistencia, conservando
+la causa. El menu controla esos errores al iniciar y cerrar la sesion.
+Una respuesta con bytes que no sean UTF-8 tambien se trata como error de
+persistencia. No se agrega control de acceso al menu principal.
+
+Se agregan pruebas unitarias de validacion, fallos y autenticacion previa,
+y una prueba de integracion que espera el vencimiento efectivo en Redis.
+Las pruebas de integracion se omiten si Redis no esta disponible, siguiendo
+el criterio de los tests de locks del proyecto.
+
 ### Otras decisiones de esta pieza
 
 **El libro mayor solo se agrega.** Un `MovimientoCuenta` nunca se modifica ni se

@@ -99,6 +99,7 @@ def construir(
             return
         consola.exito(f"Autenticado: {usuario.nombre_completo}")
         consola.aviso(f"Sesion creada: {sesion_id}")
+
     def cerrar_sesion() -> None:
         consola.titulo("Cerrar sesion")
         texto = consola.pedir("ID de la sesion")
@@ -109,7 +110,13 @@ def construir(
             consola.error("El ID de la sesion no es valido.")
             return
 
-        if sesiones.cerrar(sesion_id):
+        try:
+            cerrada = sesiones.cerrar(sesion_id)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+
+        if cerrada:
             consola.exito("Sesion cerrada.")
         else:
             consola.aviso("La sesion no existe o ya vencio.")
@@ -137,7 +144,7 @@ def construir(
             "1": ("Alta de usuario", alta),
             "2": ("Listar usuarios", listar),
             "3": ("Listar roles", listar_roles),
-            "4": ("Probar autenticacion", autenticar),
+            "4": ("Iniciar sesion", autenticar),
             "5": ("Baja de usuario", baja),
             "6": ("Cerrar sesion", cerrar_sesion),
         },

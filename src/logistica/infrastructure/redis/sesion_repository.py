@@ -3,7 +3,9 @@
 from uuid import UUID
 
 from redis import Redis
+from redis.exceptions import RedisError
 
+from logistica.exceptions import ErrorDePersistencia
 from logistica.repositories.sesion_repository import SesionRepository
 
 
@@ -22,8 +24,8 @@ class RedisSesionRepository(SesionRepository):
         ttl_segundos: int,
     ) -> None:
         """Guarda una sesión y establece su vencimiento en segundos."""
-        if ttl_segundos <= 0:
-            raise ValueError("El TTL debe ser mayor que cero")
+        if type(ttl_segundos) is not int or ttl_segundos <= 0:
+            raise ValueError("El TTL debe ser un entero positivo de segundos")
 
         clave = f"sesion:{sesion_id}"
         datos = {
@@ -33,23 +35,31 @@ class RedisSesionRepository(SesionRepository):
             "estado": "ACTIVA",
         }
 
-        with self._cliente.pipeline(transaction=True) as operacion:
-            operacion.hset(clave, mapping=datos)
-            operacion.expire(clave, ttl_segundos)
-            operacion.execute()
+        try:
+            with self._cliente.pipeline(transaction=True) as operacion:
+                operacion.hset(clave, mapping=datos)
+                operacion.expire(clave, ttl_segundos)
+                operacion.execute()
+        except RedisError as error:
+            raise ErrorDePersistencia("No se pudo guardar la sesion en Redis") from error
 
     def obtener(self, sesion_id: UUID) -> dict[str, str] | None:
         """Devuelve los datos de una sesión o None si no existe."""
-        datos = self._cliente.hgetall(f"sesion:{sesion_id}")
-        if not datos:
-            return None
-
-        return {
-            clave.decode() if isinstance(clave, bytes) else clave:
-            valor.decode() if isinstance(valor, bytes) else valor
-            for clave, valor in datos.items()
-        }
+        try:
+            datos = self._cliente.hgetall(f"sesion:{sesion_id}")
+            if not datos:
+                return None
+            return {
+                clave.decode() if isinstance(clave, bytes) else clave:
+                valor.decode() if isinstance(valor, bytes) else valor
+                for clave, valor in datos.items()
+            }
+        except (RedisError, UnicodeDecodeError) as error:
+            raise ErrorDePersistencia("No se pudo leer la sesion de Redis") from error
 
     def eliminar(self, sesion_id: UUID) -> bool:
         """Cierra una sesión eliminando su clave."""
-        return bool(self._cliente.delete(f"sesion:{sesion_id}"))
+        try:
+            return bool(self._cliente.delete(f"sesion:{sesion_id}"))
+        except RedisError as error:
+            raise ErrorDePersistencia("No se pudo cerrar la sesion en Redis") from error

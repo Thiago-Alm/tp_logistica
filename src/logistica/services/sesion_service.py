@@ -12,8 +12,8 @@ class SesionService:
         repositorio: SesionRepository,
         ttl_segundos: int,
     ) -> None:
-        if ttl_segundos <= 0:
-            raise ValueError("El TTL debe ser mayor que cero")
+        if type(ttl_segundos) is not int or ttl_segundos <= 0:
+            raise ValueError("El TTL debe ser un entero positivo de segundos")
 
         self._repositorio = repositorio
         self._ttl_segundos = ttl_segundos
