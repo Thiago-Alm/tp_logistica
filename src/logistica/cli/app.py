@@ -1,9 +1,15 @@
 """Punto de entrada de la aplicacion de consola.
 
     python -m logistica
+
+Nadie ve un menu sin autenticarse antes: `main()` no arma el menu principal
+hasta que `_autenticar()` devuelve un usuario, su rol y una sesion abierta en
+Redis.
 """
 import logging
 import sys
+from collections.abc import Callable
+from getpass import getpass
 
 from logistica.cli import (
     consola,
@@ -15,9 +21,20 @@ from logistica.cli import (
     menu_usuarios,
 )
 from logistica.container import Contenedor
+from logistica.domain.rol import Rol
+from logistica.domain.sesion import Sesion
+from logistica.domain.usuario import Usuario
 from logistica.exceptions import ErrorDePersistencia, LogisticaError
 
 log = logging.getLogger(__name__)
+
+INTENTOS_MAXIMOS = 3
+
+# Nivel de permisos minimo de cada seccion. Son los niveles de la tabla `rol`:
+# ADMINISTRADOR 100, OPERADOR 60, AUDITOR 30, CLIENTE 10.
+NIVEL_ADMINISTRADOR = 100
+NIVEL_OPERADOR = 60
+NIVEL_AUDITOR = 30
 
 
 def _comprobar_base(contenedor: Contenedor) -> bool:
@@ -33,6 +50,109 @@ def _comprobar_base(contenedor: Contenedor) -> bool:
     return True
 
 
+def _autenticar(contenedor: Contenedor) -> tuple[Usuario, Rol, Sesion] | None:
+    """Pide credenciales hasta INTENTOS_MAXIMOS veces y abre la sesion.
+
+    La contrasena se lee con getpass para que no quede en pantalla ni en el
+    historial de la terminal. El mensaje de error no distingue entre email
+    inexistente y contrasena equivocada: eso lo decide UsuarioService.
+    """
+    consola.aviso("Ingresa con tu usuario para continuar.")
+
+    for intento in range(1, INTENTOS_MAXIMOS + 1):
+        email = consola.pedir("Email")
+        password = getpass("  Contrasena (no se muestra): ")
+        try:
+            usuario = contenedor.usuarios.autenticar(email, password)
+            rol = contenedor.usuarios.obtener_rol(usuario.rol_id)
+        except LogisticaError as e:
+            consola.error(str(e))
+            restantes = INTENTOS_MAXIMOS - intento
+            if restantes:
+                consola.aviso(f"Te queda{'n' if restantes > 1 else ''} {restantes} intento(s).")
+            continue
+        break
+    else:
+        consola.error("Demasiados intentos fallidos. La aplicacion se cierra.")
+        log.warning("Autenticacion abortada tras %s intentos", INTENTOS_MAXIMOS)
+        return None
+
+    # La sesion se abre aparte del bucle: si Redis esta caido, el problema no
+    # son las credenciales y no tiene sentido volver a pedir la contrasena.
+    try:
+        sesion = contenedor.sesiones.iniciar(usuario.id)
+    except LogisticaError as e:
+        consola.error(f"Credenciales correctas, pero no se pudo abrir la sesion: {e}")
+        consola.aviso("Revisa que Redis este arriba: docker compose up -d redis")
+        return None
+
+    consola.exito(f"Bienvenido, {usuario.nombre_completo}.")
+    consola.aviso(f"Rol: {rol.descripcion} (nivel {rol.nivel_permisos})")
+    consola.aviso(f"Sesion {sesion.id}")
+    consola.aviso(f"Vence a las {sesion.fecha_fin.astimezone():%H:%M} si no la cerras antes.")
+    return usuario, rol, sesion
+
+
+def _secciones(contenedor: Contenedor) -> list[tuple[int, str, Callable[[], None]]]:
+    """Cada seccion declara el nivel de permisos que exige. El control esta en
+    un solo lugar: no hay un `if` de permisos repartido por los menus."""
+    return [
+        (
+            NIVEL_OPERADOR,
+            "Clientes",
+            lambda: menu_clientes.construir(contenedor.clientes),
+        ),
+        (
+            NIVEL_ADMINISTRADOR,
+            "Usuarios, roles y sesiones",
+            lambda: menu_usuarios.construir(
+                contenedor.usuarios,
+                contenedor.clientes,
+                contenedor.sesiones,
+            ),
+        ),
+        (
+            NIVEL_OPERADOR,
+            "Envios y trayectos",
+            lambda: menu_envios.construir(
+                contenedor.envios,
+                contenedor.clientes,
+                contenedor.trazabilidad,
+            ),
+        ),
+        (
+            NIVEL_OPERADOR,
+            "Facturacion y cuentas corrientes",
+            lambda: menu_facturacion.construir(contenedor.facturacion, contenedor.clientes),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Reportes",
+            lambda: menu_reportes.construir(contenedor.reportes),
+        ),
+        (
+            NIVEL_ADMINISTRADOR,
+            "Sincronizacion entre motores",
+            lambda: menu_sincronizacion.construir(
+                contenedor.worker_de_sincronizacion,
+                contenedor.chequeo_de_consistencia,
+            ),
+        ),
+    ]
+
+
+def _opciones_para(
+    nivel: int, secciones: list[tuple[int, str, Callable[[], None]]]
+) -> dict[str, tuple[str, Callable[[], None]]]:
+    """Deja solo las secciones que el nivel alcanza y las renumera desde 1.
+
+    Las secciones que no alcanza no se muestran: si figuraran deshabilitadas,
+    le estarian contando a cualquiera que entre que existen y que hay.
+    """
+    permitidas = [(etiqueta, accion) for minimo, etiqueta, accion in secciones if nivel >= minimo]
+    return {str(i): entrada for i, entrada in enumerate(permitidas, start=1)}
+
+
 def main() -> int:
     contenedor = Contenedor()
     consola.titulo("Plataforma de Logistica Internacional y Monitoreo IoT")
@@ -42,43 +162,29 @@ def main() -> int:
         return 1
 
     try:
-        consola.menu(
-            "Menu principal",
-            {
-                "1": ("Clientes", lambda: menu_clientes.construir(contenedor.clientes)),
-                "2": (
-                    "Usuarios y roles",
-                    lambda: menu_usuarios.construir(
-    contenedor.usuarios,
-    contenedor.clientes,
-    contenedor.sesiones,
-),
-                ),
-                "3": (
-                    "Envios y trayectos",
-                    lambda: menu_envios.construir(
-                        contenedor.envios,
-                        contenedor.clientes,
-                        contenedor.trazabilidad,
-                    ),
-                ),
-                "4": (
-                    "Facturacion y cuentas corrientes",
-                    lambda: menu_facturacion.construir(
-                        contenedor.facturacion, contenedor.clientes
-                    ),
-                ),
-                "5": ("Reportes", lambda: menu_reportes.construir(contenedor.reportes)),
-                "6": (
-                    "Sincronizacion entre motores",
-                    lambda: menu_sincronizacion.construir(
-                        contenedor.worker_de_sincronizacion,
-                        contenedor.chequeo_de_consistencia,
-                    ),
-                ),
-            },
-            salida="Salir",
+        credenciales = _autenticar(contenedor)
+    except KeyboardInterrupt:
+        print()
+        consola.aviso("Interrumpido.")
+        return 130
+    if credenciales is None:
+        return 1
+    _, rol, sesion = credenciales
+
+    secciones = _secciones(contenedor)
+    opciones = _opciones_para(rol.nivel_permisos, secciones)
+    if not opciones:
+        consola.error(
+            f"El rol {rol.descripcion} (nivel {rol.nivel_permisos}) no tiene acceso a "
+            "ninguna seccion de la consola interna."
         )
+        _cerrar_sesion(contenedor, sesion)
+        return 1
+
+    consola.aviso(f"Ves {len(opciones)} de {len(secciones)} secciones segun tu rol.")
+
+    try:
+        consola.menu(f"Menu principal - {rol.descripcion}", opciones, salida="Salir")
     except KeyboardInterrupt:
         print()
         consola.aviso("Interrumpido.")
@@ -87,9 +193,20 @@ def main() -> int:
         log.exception("Error no controlado en la aplicacion")
         consola.error(str(e))
         return 1
+    finally:
+        # La sesion se cierra pase lo que pase: si quedara viva, el TTL la
+        # borraria igual, pero una hora despues.
+        _cerrar_sesion(contenedor, sesion)
 
     consola.aviso("Hasta luego.")
     return 0
+
+
+def _cerrar_sesion(contenedor: Contenedor, sesion: Sesion) -> None:
+    try:
+        contenedor.sesiones.cerrar(sesion.id)
+    except LogisticaError as e:
+        log.warning("No se pudo cerrar la sesion %s: %s", sesion.id, e)
 
 
 if __name__ == "__main__":

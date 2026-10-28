@@ -1,25 +1,29 @@
-"""Interfaz para el almacenamiento de sesiones."""
+"""Interfaz para el almacenamiento de sesiones activas."""
 
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from logistica.domain.sesion import Sesion
+
 
 class SesionRepository(ABC):
-    @abstractmethod
-    def guardar(
-        self,
-        sesion_id: UUID,
-        usuario_id: UUID,
-        fecha_inicio: str,
-        fecha_fin: str,
-        ttl_segundos: int,
-    ) -> None:
-        """Guarda una sesión con vencimiento."""
+    """Los metodos reciben y devuelven entidades de dominio, nunca diccionarios
+    ni filas (D33). El vencimiento no se pasa aparte: se deriva de
+    `sesion.fecha_fin`, para que haya una sola fuente de verdad sobre cuando
+    muere la sesion."""
 
     @abstractmethod
-    def obtener(self, sesion_id: UUID) -> dict[str, str] | None:
-        """Devuelve la sesión o None si no existe."""
+    def guardar(self, sesion: Sesion) -> None:
+        """Guarda la sesion con vencimiento automatico."""
+
+    @abstractmethod
+    def obtener(self, sesion_id: UUID) -> Sesion | None:
+        """Devuelve la sesion o None si no existe o ya vencio."""
+
+    @abstractmethod
+    def listar_activas(self) -> list[Sesion]:
+        """Devuelve todas las sesiones vigentes."""
 
     @abstractmethod
     def eliminar(self, sesion_id: UUID) -> bool:
-        """Elimina la sesión y devuelve si existía."""
+        """Elimina la sesion y devuelve si existia."""

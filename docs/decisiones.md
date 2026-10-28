@@ -1401,45 +1401,6 @@ crédito, **no queda ni la factura, ni el movimiento, ni el saldo cambiado**.
 ---
 ---
 
-## D42 — Sesiones activas en Redis
-
-**Estado:** implementada · **Responsable:** Umbi · **Alcance:** Redis y menú de usuarios
-
-Cada sesión se guarda en Redis como un Hash con la clave
-`sesion:<sesion_id>`. Contiene el identificador del usuario, la fecha
-de inicio, la fecha de vencimiento y el estado `ACTIVA`.
-
-El Hash se guarda junto con un TTL. Cuando vence, Redis elimina la clave.
-La sesión también puede cerrarse manualmente desde el menú de usuarios.
-
-La aplicación crea la sesión después de validar las credenciales.
-El menú principal todavía no exige una sesión activa para acceder.
-
-La duración usada actualmente es de una hora, como valor provisional
-pendiente de acordar con el grupo.
-
-**Por qué Redis:** permite consultar las sesiones rápidamente y gestionar
-su vencimiento automático mediante TTL.
-
-**Validación:** se probó crear, consultar y cerrar una sesión, y verificar
-su vencimiento. También se probó el inicio y cierre desde el menú.
-
-### Revision de sesiones — rama umbi-sesiones
-
-Se conserva el Hash, el TTL de una hora y la creacion posterior a autenticar.
-El TTL debe ser un entero positivo (no se aceptan booleanos ni fracciones).
-Se mantiene ValueError para configuraciones invalidas, compatible con el contrato previo.
-
-El repositorio traduce errores de Redis a ErrorDePersistencia, conservando
-la causa. El menu controla esos errores al iniciar y cerrar la sesion.
-Una respuesta con bytes que no sean UTF-8 tambien se trata como error de
-persistencia. No se agrega control de acceso al menu principal.
-
-Se agregan pruebas unitarias de validacion, fallos y autenticacion previa,
-y una prueba de integracion que espera el vencimiento efectivo en Redis.
-Las pruebas de integracion se omiten si Redis no esta disponible, siguiendo
-el criterio de los tests de locks del proyecto.
-
 ### Otras decisiones de esta pieza
 
 **El libro mayor solo se agrega.** Un `MovimientoCuenta` nunca se modifica ni se
@@ -1483,51 +1444,164 @@ D3. Es el precio de cumplir el requisito con una tabla en lugar de tres.
 cuando la suma de sus pagos alcanza el importe total, y un pago que supere lo que
 resta se rechaza.
 
-### Detección de sensores inactivos — Umbi
+---
 
-- Se consultan los sensores con estado administrativo ACTIVO en PostgreSQL.
-- Cada sensor se evalúa según su intervalo_reporte_segundos.
-- Redis conserva la última señal en el sorted set sensores:heartbeat.
-- El simulador registra el heartbeat después de guardar las lecturas en Cassandra.
-- Un sensor se considera INACTIVO cuando el tiempo sin reportar supera
-  su intervalo. En el límite exacto todavía se considera ACTIVO.
-- Una nueva señal permite que vuelva a clasificarse como ACTIVO.
-- Si no existe heartbeat, se informa SIN_DATOS. La ausencia de datos
-  no permite distinguir un sensor nuevo de una pérdida de datos de Redis.
-- Una marca temporal futura o no válida se informa como RELOJ_INVALIDO.
-- Los errores de Redis se informan como fallos del proceso, no como
-  inactividad del sensor.
-- El planificador revisa cada 30 segundos y utiliza un lock de Redis
-  de 120 segundos. La exclusión entre instancias depende de que la
-  ejecución termine antes de que venza ese lock.
-- Los resultados se registran en logs; no se modifica el estado
-  administrativo del sensor ni se crean alertas persistentes en MongoDB.
+## D42 — La autenticacion es la puerta de la aplicacion, y el rol recorta el menu
 
-Validación manual realizada:
-- Consulta de sensores desde PostgreSQL y heartbeat desde Redis.
-- Señal reciente, límite exacto, intervalo superado y recuperación.
-- Registro de la tarea cada 30 segundos.
-- Ejecución individual de la tarea con el lock de Redis.
+**Estado:** acordada · **Fecha:** 28/10/2026 · **Alcance:** `cli/app.py`, `domain/sesion.py`, sesiones en Redis
 
-### Cache de reportes en Redis — Umbi
+Hasta esta semana la aplicacion tenia usuarios, roles con `nivel_permisos`,
+hashes PBKDF2 (D27) y un `autenticar()` que funcionaba, pero **nada de eso
+protegia nada**: `python -m logistica` abria el menu completo sin pedir
+credenciales, e "Iniciar sesion" era la opcion 4 de un submenu que imprimia un
+identificador que despues nadie usaba. La tabla `rol` existia y `nivel_permisos`
+no se leia en ningun lado.
 
-- Se aplica cache a los siete reportes de ReporteService.
-- Cada clave incluye el nombre del reporte y un hash de sus parametros:
-  fechas y limite del ranking, cuando corresponde.
-- Los resultados se guardan como JSON con vencimiento de 60 segundos.
-- Durante ese periodo pueden mostrarse datos anteriores a los ultimos
-  cambios de PostgreSQL. No se implementa invalidacion inmediata.
-- Si la clave no existe o vence, se consulta PostgreSQL nuevamente.
-- Si falla la lectura de Redis o el contenido no es valido, se consulta
-  PostgreSQL. Si falla la escritura de cache, se devuelve igualmente
-  el resultado obtenido de la base.
-- Se reconstruyen UUID, enumeraciones, Decimal y timedelta para conservar
-  los tipos esperados por el resto de la aplicacion.
-- Las listas vacias y los resultados None tambien se almacenan.
+**Que se decidio.** `main()` no arma el menu hasta que `_autenticar()` devuelve
+un usuario, su rol y una sesion abierta en Redis. Si las credenciales fallan
+tres veces, la aplicacion termina con codigo 1. La sesion se cierra en un
+`finally`, asi que salir del menu la borra sin esperar el TTL.
 
-Validacion manual realizada:
-- Guardado, recuperacion y vencimiento de una clave de prueba.
-- Recuperacion de los siete reportes con acceso a PostgreSQL bloqueado
-  en la segunda consulta.
-- Continuidad del reporte por pais ante fallos simulados de lectura
-  y escritura de cache.
+**El rol recorta el menu, y el control esta en un solo lugar.** Cada seccion
+declara su nivel minimo en `_secciones()`:
+
+| Seccion | Nivel minimo | Quien la ve |
+|---|---|---|
+| Clientes | 60 | ADMINISTRADOR, OPERADOR |
+| Usuarios, roles y sesiones | 100 | ADMINISTRADOR |
+| Envios y trayectos | 60 | ADMINISTRADOR, OPERADOR |
+| Facturacion y cuentas corrientes | 60 | ADMINISTRADOR, OPERADOR |
+| Reportes | 30 | ADMINISTRADOR, OPERADOR, AUDITOR |
+| Sincronizacion entre motores | 100 | ADMINISTRADOR |
+
+`_opciones_para(nivel, secciones)` filtra y **renumera desde 1**: si filtrara
+sin renumerar, el menu mostraria "1, 3, 5" y se veria como un error. No hay un
+`if nivel >= X` repartido por los menus; el criterio vive en una sola funcion y
+hay un test parametrizado que verifica cuantas secciones ve cada nivel.
+
+**Las secciones que el rol no alcanza no se muestran.** Mostrarlas deshabilitadas
+le contaria a cualquiera que entre que existen y que hay detras.
+
+**El rol CLIENTE (nivel 10) no ve ninguna seccion, y esta bien.** La consola es
+una herramienta interna: un cliente no opera el back-office. El usuario
+`mariana@agroglobal.com` autentica correctamente y la aplicacion le dice que su
+rol no tiene acceso a ninguna seccion. **Es el caso que demuestra en vivo que el
+control de permisos existe**, y conviene mostrarlo en la defensa.
+
+### Por que la sesion es una entidad y vive en Redis
+
+`Sesion` es una entidad de dominio (`domain/sesion.py`), no un diccionario. El
+repositorio y el servicio reciben y devuelven `Sesion`, como el resto del
+proyecto (D33). La primera version devolvia `dict[str, str]` y levantaba
+`ValueError` en vez de `ValidacionError`: se corrigio para que respete D29 y D33.
+
+**El TTL no se pasa como parametro aparte: se deriva de `sesion.fecha_fin`.** Si
+viajaran los dos, podrian contradecirse y habria dos respuestas a "cuando muere
+esta sesion". `guardar()` calcula los segundos que le quedan y rechaza con
+`ValidacionError` una sesion que ya vencio.
+
+**Por que Redis y no una tabla:** la sesion es el unico dato del sistema que nace
+con fecha de muerte. En PostgreSQL haria falta un proceso periodico que barra las
+vencidas; en Redis el `EXPIRE` del motor lo hace solo. El `hset` y el `expire`
+van en el mismo pipeline transaccional: si el `expire` se perdiera, la sesion
+quedaria viva para siempre. Hay un test de integracion que crea una sesion con
+TTL de 1 segundo y verifica que desaparece sin que nadie la borre.
+
+**`listar_activas()` usa SCAN, no KEYS.** `KEYS` bloquea el motor mientras
+recorre todo el espacio de claves, que en este proyecto comparte los locks de
+los procesos periodicos (D14), la cache de reportes y el heartbeat de sensores.
+Entre el SCAN y el HGETALL una clave puede vencer, asi que el repositorio saltea
+las respuestas vacias en vez de romper. El servicio ademas filtra las vencidas
+que Redis todavia no barrio, porque el `EXPIRE` no es instantaneo.
+
+**Lo que falta, y se asume:** no hay bloqueo por intentos fallidos repetidos
+(solo el corte de tres intentos por ejecucion) ni renovacion de la sesion por
+actividad. Con un TTL de una hora, una sesion vence aunque el usuario este
+trabajando. Se deja asentado como limitacion conocida.
+
+---
+
+---
+
+## D43 — Los sensores inactivos se detectan con un heartbeat en Redis, no leyendo Cassandra
+
+**Estado:** implementada · **Fecha:** 28/10/2026 · **Responsable:** Umbi · **Alcance:** Redis, `deteccion_inactividad_service`, planificador
+
+Un sensor esta inactivo cuando **deja de reportar**. La pregunta es "cuanto hace
+que no escribe", y responderla contra Cassandra obligaria a buscar la ultima
+lectura de cada sensor recorriendo particiones por fecha. En cambio Redis guarda
+un **sorted set** `sensores:heartbeat` donde el score es la marca de tiempo del
+ultimo reporte: la respuesta es una sola lectura.
+
+**Como funciona.** El simulador registra el heartbeat **despues** de guardar las
+lecturas en Cassandra, para que una señal nunca afirme un dato que no se
+escribio. El proceso consulta los sensores con estado administrativo `ACTIVO` en
+PostgreSQL y compara, para cada uno, el tiempo sin reportar contra su
+`intervalo_reporte_segundos`.
+
+**Los cuatro resultados posibles:**
+
+| Resultado | Cuando |
+|---|---|
+| `ACTIVO` | reporto dentro de su intervalo (en el limite exacto todavia cuenta como activo) |
+| `INACTIVO` | el tiempo sin reportar supera su intervalo |
+| `SIN_DATOS` | no hay heartbeat para ese sensor |
+| `RELOJ_INVALIDO` | la marca temporal es futura o no se puede interpretar |
+
+**Por que `SIN_DATOS` es su propio resultado y no `INACTIVO`:** la ausencia de
+heartbeat no permite distinguir un sensor recien dado de alta de una perdida de
+datos de Redis. Informarlo como inactivo seria afirmar algo que no se sabe.
+
+**Por que `RELOJ_INVALIDO` y no descartar la señal:** un sensor con el reloj
+adelantado pareceria eternamente activo. Nombrar el caso lo hace visible en el
+log en vez de esconderlo.
+
+**Un error de Redis no es inactividad.** Si falla la lectura, el proceso informa
+un fallo propio. Si lo tradujera a "todos los sensores inactivos", una caida de
+Redis se veria como una caida de la planta.
+
+**Lo que el proceso NO hace, y es deliberado:** no cambia el estado
+administrativo del sensor en PostgreSQL ni crea alertas persistentes en MongoDB.
+Registra el resultado en el log. El estado administrativo lo decide una persona;
+este proceso informa, no actua.
+
+**Limitacion conocida.** El planificador corre cada 30 segundos con un lock de
+Redis de 120 segundos (D14). La exclusion entre instancias depende de que la
+ejecucion termine antes de que venza el lock: si tardara mas, otra instancia
+podria arrancar en paralelo.
+
+---
+
+## D44 — Los reportes se cachean en Redis 60 segundos, y la cache nunca rompe el reporte
+
+**Estado:** implementada · **Fecha:** 28/10/2026 · **Responsable:** Umbi · **Alcance:** Redis, `ReporteService`
+
+Los siete reportes de `ReporteService` son consultas de agregacion sobre
+PostgreSQL que varios usuarios pueden pedir seguido con los mismos parametros.
+Se cachean en Redis con vencimiento de 60 segundos.
+
+**La clave.** `cache:reportes:v1:<nombre>:<hash>`, donde el hash es un SHA-256 de
+los parametros del reporte (fechas, limite del ranking). Dos reportes con
+parametros distintos no se pisan, y el `v1` permite invalidar todas las claves de
+golpe si cambia el formato guardado.
+
+**El principio: la cache es un atajo, nunca una dependencia.** Si la clave no
+existe o vencio, si la lectura de Redis falla, o si el contenido guardado no es
+valido, se consulta PostgreSQL. Si falla la **escritura** de la cache, el
+reporte se devuelve igual. Un Redis caido hace la aplicacion mas lenta, no la
+rompe. Hay pruebas que simulan fallos de lectura y de escritura.
+
+**Se guardan tambien las listas vacias y los `None`.** Si no se guardaran, el
+caso "no hay datos" consultaria PostgreSQL cada vez, que es justo el caso en que
+la consulta no sirve para nada.
+
+**Los tipos se reconstruyen al leer.** JSON no tiene UUID, `Decimal`,
+enumeraciones ni `timedelta`. Al deserializar se vuelven a armar, porque el resto
+de la aplicacion espera los objetos del dominio (D33) y porque un `Decimal` que
+volviera como float rompería D15.
+
+**La consecuencia que hay que saber defender:** durante esos 60 segundos un
+reporte puede mostrar datos anteriores al ultimo cambio en PostgreSQL. **No hay
+invalidacion inmediata.** Es aceptable porque son reportes de lectura para
+analisis, no pantallas de operacion: nadie decide sobre un envio puntual mirando
+el reporte por pais. Facturacion, estados de envio y saldos **no** se cachean.

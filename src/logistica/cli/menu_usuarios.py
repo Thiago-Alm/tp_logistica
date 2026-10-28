@@ -1,4 +1,5 @@
-"""Menu de usuarios y roles."""
+"""Menu de usuarios, roles y sesiones activas."""
+from datetime import datetime, timezone
 from getpass import getpass
 from uuid import UUID
 
@@ -87,18 +88,35 @@ def construir(
             [[r.descripcion, str(r.nivel_permisos)] for r in servicio.listar_roles()],
         )
 
-    def autenticar() -> None:
-        consola.titulo("Iniciar sesion")
-        email = consola.pedir("Email")
-        password = getpass("  Contrasena (no se muestra): ")
+    def listar_sesiones() -> None:
+        """Las sesiones abiertas ahora mismo, leidas de Redis.
+
+        No hay una opcion "iniciar sesion": la sesion la abre app.py al entrar,
+        que es la unica puerta de la aplicacion."""
+        consola.titulo("Sesiones activas")
         try:
-            usuario = servicio.autenticar(email, password)
-            sesion_id = sesiones.iniciar(usuario.id)
-        except LogisticaError as e:
-            consola.error(str(e))
+            activas = sesiones.listar_activas()
+        except LogisticaError as error:
+            consola.error(str(error))
             return
-        consola.exito(f"Autenticado: {usuario.nombre_completo}")
-        consola.aviso(f"Sesion creada: {sesion_id}")
+        if not activas:
+            consola.aviso("No hay sesiones activas.")
+            return
+
+        ahora = datetime.now(timezone.utc)
+        nombres = {u.id: u.nombre_completo for u in servicio.listar()}
+        consola.tabla(
+            ["SESION", "USUARIO", "DESDE", "VENCE EN"],
+            [
+                [
+                    str(s.id),
+                    nombres.get(s.usuario_id, str(s.usuario_id)),
+                    f"{s.fecha_inicio.astimezone():%d/%m %H:%M}",
+                    f"{s.segundos_restantes(ahora) // 60} min",
+                ]
+                for s in activas
+            ],
+        )
 
     def cerrar_sesion() -> None:
         consola.titulo("Cerrar sesion")
@@ -139,13 +157,13 @@ def construir(
         consola.exito("Usuario dado de baja.")
 
     consola.menu(
-        "Usuarios y roles",
+        "Usuarios, roles y sesiones",
         {
             "1": ("Alta de usuario", alta),
             "2": ("Listar usuarios", listar),
             "3": ("Listar roles", listar_roles),
-            "4": ("Iniciar sesion", autenticar),
+            "4": ("Sesiones activas", listar_sesiones),
             "5": ("Baja de usuario", baja),
-            "6": ("Cerrar sesion", cerrar_sesion),
+            "6": ("Cerrar una sesion activa", cerrar_sesion),
         },
     )
