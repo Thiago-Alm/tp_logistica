@@ -68,8 +68,10 @@ def _autenticar(contenedor: Contenedor) -> tuple[Usuario, Rol, Sesion] | None:
         except LogisticaError as e:
             consola.error(str(e))
             restantes = INTENTOS_MAXIMOS - intento
-            if restantes:
-                consola.aviso(f"Te queda{'n' if restantes > 1 else ''} {restantes} intento(s).")
+            if restantes == 1:
+                consola.aviso("Te queda 1 intento.")
+            elif restantes > 1:
+                consola.aviso(f"Te quedan {restantes} intentos.")
             continue
         break
     else:
