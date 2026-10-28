@@ -79,8 +79,10 @@ class Contenedor:
 
     @cached_property
     def reportes(self) -> ReporteService:
-        return ReporteService(self.unidad_de_trabajo)
-
+        return ReporteService(
+            self.unidad_de_trabajo,
+            cache=self.cache_reportes,
+        )
     @cached_property
     def trazabilidad(self) -> EventoLogisticoService:
         return EventoLogisticoService(self.eventos_logisticos, self.unidad_de_trabajo)
@@ -127,6 +129,13 @@ class Contenedor:
             heartbeat=self.heartbeat,
             cargar_sensores=lambda: cargar_sensores_monitoreados(self.settings),
         )
+    @cached_property
+    def cache_reportes(self):
+        from logistica.infrastructure.redis.cache_reportes_repository import (
+            RedisCacheReportesRepository,
+        )
+
+        return RedisCacheReportesRepository(self.redis)
 
 
     # -- Cassandra y MongoDB -------------------------------------------------

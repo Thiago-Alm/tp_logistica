@@ -1492,3 +1492,26 @@ Validación manual realizada:
 - Señal reciente, límite exacto, intervalo superado y recuperación.
 - Registro de la tarea cada 30 segundos.
 - Ejecución individual de la tarea con el lock de Redis.
+
+### Cache de reportes en Redis — Umbi
+
+- Se aplica cache a los siete reportes de ReporteService.
+- Cada clave incluye el nombre del reporte y un hash de sus parametros:
+  fechas y limite del ranking, cuando corresponde.
+- Los resultados se guardan como JSON con vencimiento de 60 segundos.
+- Durante ese periodo pueden mostrarse datos anteriores a los ultimos
+  cambios de PostgreSQL. No se implementa invalidacion inmediata.
+- Si la clave no existe o vence, se consulta PostgreSQL nuevamente.
+- Si falla la lectura de Redis o el contenido no es valido, se consulta
+  PostgreSQL. Si falla la escritura de cache, se devuelve igualmente
+  el resultado obtenido de la base.
+- Se reconstruyen UUID, enumeraciones, Decimal y timedelta para conservar
+  los tipos esperados por el resto de la aplicacion.
+- Las listas vacias y los resultados None tambien se almacenan.
+
+Validacion manual realizada:
+- Guardado, recuperacion y vencimiento de una clave de prueba.
+- Recuperacion de los siete reportes con acceso a PostgreSQL bloqueado
+  en la segunda consulta.
+- Continuidad del reporte por pais ante fallos simulados de lectura
+  y escritura de cache.
