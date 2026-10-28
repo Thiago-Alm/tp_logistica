@@ -252,3 +252,12 @@ class Contenedor:
         )
 
         return Neo4jConsultaRepository(conectar(self.settings))
+
+    @cached_property
+    def consultas_red(self):
+        from logistica.services.consulta_grafo_service import ConsultaGrafoService
+
+        return ConsultaGrafoService(
+            consultas=self.consultas_grafo,
+            unidad_de_trabajo=self.unidad_de_trabajo,
+        )
