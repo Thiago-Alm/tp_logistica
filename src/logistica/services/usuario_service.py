@@ -122,3 +122,11 @@ class UsuarioService:
         if rol is None:
             raise NoEncontrado(f"No existe el rol {descripcion!r}")
         return rol
+
+    def obtener_rol(self, rol_id: UUID) -> Rol:
+        """El rol de un usuario, para saber su nivel de permisos."""
+        with self._uow as uow:
+            rol = uow.roles.obtener(rol_id)
+        if rol is None:
+            raise NoEncontrado(f"No existe el rol {rol_id}")
+        return rol
