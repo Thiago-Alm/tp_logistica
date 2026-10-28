@@ -1466,3 +1466,29 @@ D3. Es el precio de cumplir el requisito con una tabla en lugar de tres.
 **Los pagos parciales están contemplados.** Una factura pasa a `PAGADA` solo
 cuando la suma de sus pagos alcanza el importe total, y un pago que supere lo que
 resta se rechaza.
+
+### Detección de sensores inactivos — Umbi
+
+- Se consultan los sensores con estado administrativo ACTIVO en PostgreSQL.
+- Cada sensor se evalúa según su intervalo_reporte_segundos.
+- Redis conserva la última señal en el sorted set sensores:heartbeat.
+- El simulador registra el heartbeat después de guardar las lecturas en Cassandra.
+- Un sensor se considera INACTIVO cuando el tiempo sin reportar supera
+  su intervalo. En el límite exacto todavía se considera ACTIVO.
+- Una nueva señal permite que vuelva a clasificarse como ACTIVO.
+- Si no existe heartbeat, se informa SIN_DATOS. La ausencia de datos
+  no permite distinguir un sensor nuevo de una pérdida de datos de Redis.
+- Una marca temporal futura o no válida se informa como RELOJ_INVALIDO.
+- Los errores de Redis se informan como fallos del proceso, no como
+  inactividad del sensor.
+- El planificador revisa cada 30 segundos y utiliza un lock de Redis
+  de 120 segundos. La exclusión entre instancias depende de que la
+  ejecución termine antes de que venza ese lock.
+- Los resultados se registran en logs; no se modifica el estado
+  administrativo del sensor ni se crean alertas persistentes en MongoDB.
+
+Validación manual realizada:
+- Consulta de sensores desde PostgreSQL y heartbeat desde Redis.
+- Señal reciente, límite exacto, intervalo superado y recuperación.
+- Registro de la tarea cada 30 segundos.
+- Ejecución individual de la tarea con el lock de Redis.

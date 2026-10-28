@@ -106,6 +106,27 @@ class Contenedor:
             RedisSesionRepository(self.redis),
             ttl_segundos=3600,
         )
+    @cached_property
+    def heartbeat(self):
+        """Registro de la última señal recibida de cada sensor."""
+        from logistica.infrastructure.redis.heartbeat_repository import (
+            RedisHeartbeatRepository,
+        )
+
+        return RedisHeartbeatRepository(self.redis)
+    @cached_property
+    def deteccion_inactividad(self):
+        from logistica.infrastructure.postgres.sensores_monitoreados import (
+            cargar_sensores_monitoreados,
+        )
+        from logistica.services.deteccion_inactividad_service import (
+            DeteccionInactividadService,
+        )
+
+        return DeteccionInactividadService(
+            heartbeat=self.heartbeat,
+            cargar_sensores=lambda: cargar_sensores_monitoreados(self.settings),
+        )
 
 
     # -- Cassandra y MongoDB -------------------------------------------------

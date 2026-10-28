@@ -26,6 +26,7 @@ from uuid import UUID
 from logistica.config import Settings
 from logistica.domain.lectura import Lectura
 from logistica.exceptions import ErrorDePersistencia, LogisticaError, ValidacionError
+from logistica.repositories.heartbeat_repository import HeartbeatRepository
 from logistica.repositories.lectura_repository import LecturaRepository
 from logistica.services.deteccion_anomalias_service import DeteccionAnomaliasService
 
@@ -167,6 +168,7 @@ class SimuladorIoT:
         sensores: list[SensorSimulado],
         reloj: Callable[[], datetime] | None = None,
         dormir: Callable[[float], None] = time.sleep,
+        heartbeat: HeartbeatRepository | None = None,
     ) -> None:
         if not sensores:
             raise ValidacionError("No hay sensores para simular")
@@ -174,6 +176,7 @@ class SimuladorIoT:
         self._deteccion = deteccion
         self._generador = generador
         self._sensores = sensores
+        self._heartbeat = heartbeat
         # Se inyectan el reloj y la espera para poder probar sin esperar de verdad.
         self._reloj = reloj or (lambda: datetime.now(timezone.utc))
         self._dormir = dormir
@@ -190,6 +193,15 @@ class SimuladorIoT:
         momento = momento.replace(microsecond=momento.microsecond // 1000 * 1000)
         lecturas = [self._generador.siguiente(s, momento) for s in self._sensores]
         self._lecturas.guardar_lote(lecturas)
+        if self._heartbeat is not None:
+            for lectura in lecturas:
+                try:
+                    self._heartbeat.registrar(
+                        lectura.sensor_id,
+                        lectura.momento.timestamp(),
+                    )
+                except ErrorDePersistencia as error:
+                    log.error("No se pudo registrar el heartbeat: %s", error)
         alertas = sum(len(self._deteccion.evaluar(lectura)) for lectura in lecturas)
         return len(lecturas), alertas
 
@@ -336,7 +348,13 @@ def main(argv: list[str] | None = None) -> int:
             probabilidad_anomalia=args.probabilidad_anomalia,
             duracion_anomalia=args.duracion_anomalia,
         )
-        simulador = SimuladorIoT(contenedor.lecturas, deteccion, generador, sensores)
+        simulador = SimuladorIoT(
+            contenedor.lecturas,
+            deteccion,
+            generador,
+            sensores,
+            heartbeat=contenedor.heartbeat,
+        )
         log.info("Simulando %d sensores (Ctrl+C para detener)", len(sensores))
         resumen = simulador.ejecutar(ciclos=args.ciclos, intervalo=args.intervalo)
     except LogisticaError as error:

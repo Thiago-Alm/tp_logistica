@@ -128,7 +128,35 @@ class Planificador:
                 )
 
         self._con_lock("verificacion_saldos", MINUTOS_ENTRE_CHEQUEOS * 60, tarea)
+    def detectar_sensores_inactivos(self) -> None:
+        """Revisa las señales de los sensores bajo un lock de Redis."""
 
+        def tarea() -> None:
+            resultados = self._contenedor.deteccion_inactividad.verificar()
+            inactivos = 0
+
+            for resultado in resultados:
+                if resultado.estado == "INACTIVO":
+                    inactivos += 1
+                    log.warning(
+                        "Sensor %s inactivo: %.1f segundos sin reportar",
+                        resultado.sensor_id,
+                        resultado.segundos_sin_reportar,
+                    )
+                elif resultado.estado in ("SIN_DATOS", "RELOJ_INVALIDO"):
+                    log.warning(
+                        "Sensor %s: no se puede evaluar (%s)",
+                        resultado.sensor_id,
+                        resultado.estado,
+                    )
+
+            log.info(
+                "Monitoreo: %s sensores revisados, %s inactivos",
+                len(resultados),
+                inactivos,
+            )
+
+        self._con_lock("deteccion_sensores_inactivos", 120, tarea)
     # --- Arranque ---------------------------------------------------------
 
     def registrar(self) -> None:
@@ -176,8 +204,15 @@ class Planificador:
             coalesce=True,
             max_instances=1,
         )
+        self._scheduler.add_job(
+            self.detectar_sensores_inactivos,
+            "interval",
+            seconds=30,
+            id="deteccion_sensores_inactivos",
+            coalesce=True,
+            max_instances=1,
+        )
         # Pendientes de esta semana, a cargo de los demas:
-        #   - deteccion de sensores inactivos (Umbi, via el heartbeat de Redis)
         #   - prediccion diaria de riesgos (Mati, cron diario)
 
     def arrancar(self) -> None:
