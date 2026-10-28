@@ -10,6 +10,7 @@ from logistica.cli import (
     menu_clientes,
     menu_envios,
     menu_facturacion,
+    menu_gps,
     menu_reportes,
     menu_sincronizacion,
     menu_usuarios,
@@ -75,6 +76,10 @@ def main() -> int:
                         contenedor.worker_de_sincronizacion,
                         contenedor.chequeo_de_consistencia,
                     ),
+                ),
+                "7": (
+                    "Seguimiento GPS",
+                    lambda: menu_gps.construir(contenedor.gps),
                 ),
             },
             salida="Salir",

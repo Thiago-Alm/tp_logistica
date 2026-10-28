@@ -136,6 +136,14 @@ class Contenedor:
         )
 
         return RedisCacheReportesRepository(self.redis)
+    @cached_property
+    def gps(self):
+        from logistica.services.gps_service import GPSService
+
+        return GPSService(
+            lecturas=self.lecturas,
+            unidad_de_trabajo=self.unidad_de_trabajo,
+        )
 
 
     # -- Cassandra y MongoDB -------------------------------------------------
