@@ -12,13 +12,14 @@ from cassandra.query import UNSET_VALUE, BatchStatement, BatchType
 from logistica.domain.lectura import Lectura, Posicion
 from logistica.exceptions import ValidacionError
 from logistica.infrastructure.cassandra.conexion import traducir_errores
-from logistica.repositories.lectura_repository import LecturaRepository
+from logistica.repositories.lectura_repository import (
+    MAX_DIAS_POR_CONSULTA,
+    LecturaRepository,
+    dias_del_rango,
+)
 
 log = logging.getLogger(__name__)
 
-# Cada dia es una particion, asi que un rango es una consulta por dia. Se limita
-# para que un rango enorme no dispare cientos de consultas (D31).
-MAX_DIAS_POR_CONSULTA = 31
 # `ultimas` retrocede dia por dia hasta juntar la cantidad pedida. Un sensor que
 # lleva mas de este tiempo callado devuelve menos lecturas de las pedidas.
 MAX_DIAS_HACIA_ATRAS = 30
@@ -38,13 +39,6 @@ def _a_utc(momento: datetime) -> datetime:
     if momento.tzinfo is None:
         return momento.replace(tzinfo=timezone.utc)
     return momento.astimezone(timezone.utc)
-
-
-def _dias(desde: datetime, hasta: datetime) -> list[date]:
-    """Los dias (particiones) que toca un rango, ambos extremos incluidos."""
-    primero = _a_utc(desde).date()
-    ultimo = _a_utc(hasta).date()
-    return [primero + timedelta(days=i) for i in range((ultimo - primero).days + 1)]
 
 
 def _a_lectura(fila: Any) -> Lectura:
@@ -167,7 +161,7 @@ class CassandraLecturaRepository(LecturaRepository):
     def _validar_rango(desde: datetime, hasta: datetime) -> list[date]:
         if _a_utc(desde) > _a_utc(hasta):
             raise ValidacionError("'desde' no puede ser posterior a 'hasta'")
-        dias = _dias(desde, hasta)
+        dias = dias_del_rango(desde, hasta)
         if len(dias) > MAX_DIAS_POR_CONSULTA:
             raise ValidacionError(
                 f"El rango abarca {len(dias)} dias; el maximo por consulta es "

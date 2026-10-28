@@ -248,9 +248,21 @@ class SimuladorIoT:
 # Consulta directa a PostgreSQL: todavia no existe un SensorRepository. Si los
 # nombres de tabla o columna no coinciden con el esquema, se ajusta aca o se usa
 # --sensores-json. Cuando exista el repositorio, se reemplaza (D34).
-SQL_SENSORES = """select s.id, s.contenedor_id, c.tipo
+# El envio sale de un LEFT JOIN: un contenedor DISPONIBLE o EN_MANTENIMIENTO no
+# esta en ningun envio y su lectura guarda envio_id NULL. Cuando esta en varios
+# (historico), vale el ultimo asignado que todavia no termino: ENTREGADO y
+# CANCELADO son finales (EstadoEnvio.es_final), asi que no son "el envio actual".
+SQL_SENSORES = """select s.id, s.contenedor_id, c.tipo, activo.envio_id
                   from sensor s
                   join contenedor c on c.id = s.contenedor_id
+                  left join (
+                      select distinct on (ec.contenedor_id)
+                             ec.contenedor_id, ec.envio_id
+                      from envio_contenedor ec
+                      join envio e on e.id = ec.envio_id
+                      where e.estado not in ('ENTREGADO', 'CANCELADO')
+                      order by ec.contenedor_id, ec.fecha_asignacion desc
+                  ) activo on activo.contenedor_id = s.contenedor_id
                   order by s.id"""
 
 
@@ -264,7 +276,12 @@ def cargar_sensores_desde_postgres(settings: Settings) -> list[SensorSimulado]:
             return conexion.execute(SQL_SENSORES).fetchall()
 
     sensores = [
-        SensorSimulado(sensor_id=fila[0], contenedor_id=fila[1], tipo_contenedor=fila[2])
+        SensorSimulado(
+            sensor_id=fila[0],
+            contenedor_id=fila[1],
+            tipo_contenedor=fila[2],
+            envio_id=fila[3],
+        )
         for fila in consultar()
     ]
     if not sensores:

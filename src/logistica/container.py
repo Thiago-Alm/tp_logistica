@@ -136,6 +136,7 @@ class Contenedor:
         )
 
         return RedisCacheReportesRepository(self.redis)
+
     @cached_property
     def gps(self):
         from logistica.services.gps_service import GPSService

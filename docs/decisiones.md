@@ -1629,6 +1629,53 @@ vacia de Cassandra no distingue "no existe el contenedor" de "no reporto en ese
 intervalo". PostgreSQL es la fuente de verdad y lo distingue, y el menu muestra
 un mensaje distinto en cada caso.
 
+### Revision del 28/10: donde vive el limite, y como se cuentan los dias
+
+El tope de 31 dias estaba escrito dos veces: como `timedelta(days=31)` en
+`GPSService` y como `MAX_DIAS_POR_CONSULTA` en la implementacion Cassandra. Y no
+contaban lo mismo: el servicio medía **tiempo transcurrido** y el repositorio
+**dias de calendario**, que es lo que corresponde porque cada dia es una
+particion. Pedir "los ultimos 31 dias" pasaba el control del servicio y lo
+rechazaba el motor diciendo "el rango abarca 32 dias", con un numero que el
+usuario no habia escrito.
+
+Ahora `MAX_DIAS_POR_CONSULTA` y `dias_del_rango()` viven en
+`repositories/lectura_repository.py`, o sea en el **contrato**, no en un motor.
+Los usan la implementacion Cassandra y el servicio: el servicio puede rechazar
+el rango antes de consultar PostgreSQL, sin repetir el numero y sin conocer
+Cassandra. De las 23:00 de un dia a las 01:00 del siguiente son dos
+particiones, aunque sean dos horas, y el mensaje de error es el mismo venga de
+donde venga.
+
+**El menu ofrece valores por defecto.** La consulta pedia un UUID y dos marcas
+de tiempo ISO con zona, tipeadas a mano. Ahora acepta el **codigo ISO** del
+contenedor (`HLCU7654321`, que es lo que esta impreso en el contenedor real y
+lo que tiene a mano un operador) y Enter en las fechas usa los ultimos 7 dias.
+`obtener_por_codigo` ya existia en el repositorio: no hizo falta nada nuevo.
+
+### El envio de cada posicion se resuelve en PostgreSQL
+
+`recorrido_por_contenedor` tiene columna `envio_id` y el simulador tiene el
+campo, pero la consulta que arma los sensores no lo traia, asi que la columna
+quedaba siempre en NULL: el cableado estaba completo y nadie llenaba el dato.
+
+Ahora `SQL_SENSORES` resuelve el envio con un LEFT JOIN. Las tres decisiones de
+esa consulta:
+
+1. **Es un LEFT JOIN, no un JOIN.** Un contenedor `DISPONIBLE` o
+   `EN_MANTENIMIENTO` no esta en ningun envio, y su lectura guarda `envio_id`
+   NULL. Con un JOIN interno esos sensores desaparecerian del simulador.
+2. **Si el contenedor estuvo en varios envios, vale el ultimo asignado que
+   todavia no termino** (`fecha_asignacion` descendente). `ENTREGADO` y
+   `CANCELADO` son finales (`EstadoEnvio.es_final`), asi que no son "el envio
+   actual".
+3. **El dato se guarda en la lectura, no se deriva al consultar.** El envio de
+   un contenedor cambia con el tiempo; la posicion registra en que envio estaba
+   **en ese momento**. Derivarlo despues contestaria con el envio de hoy, no
+   con el de la lectura.
+
+---
+
 ## D46 — Las consultas del grafo se exponen con un servicio que valida contra PostgreSQL
 
 **Estado:** implementada · **Fecha:** 28/10/2026 · **Responsable:** Umbi · **Alcance:** Neo4j, `ConsultaGrafoService`, menu "Consultas de la red logistica"

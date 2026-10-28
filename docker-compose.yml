@@ -1,4 +1,11 @@
-# Borrador sin probar: levantar con "docker compose up -d" y avisar si algo falla.
+# Las cinco bases del TP. Levantar con "docker compose up -d" y verificar con
+# "python scripts/chequear_conexiones.py".
+#
+# Por que hay limites de memoria: Cassandra y Neo4j dimensionan su heap JVM a
+# partir de la RAM del host (hasta 1/4 cada una). Sin topes, entre las cinco
+# bases se pasan de la memoria que Docker Desktop tiene asignada y el kernel
+# mata las dos mas grandes con SIGKILL (exit 137) en medio de una corrida. Con
+# los heaps acotados entran holgadas.
 services:
   postgres:
     image: postgres:16
@@ -10,30 +17,68 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./scripts/postgres:/docker-entrypoint-initdb.d:ro
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mongo:
     image: mongo:7
     ports: ["27017:27017"]
     volumes:
       - mongo_data:/data/db
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   neo4j:
     image: neo4j:5-community
     environment:
       NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      # El doble guion bajo representa un guion bajo literal en la clave de
+      # configuracion de Neo4j 5.
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
     ports: ["7474:7474", "7687:7687"]
     volumes:
       - neo4j_data:/data
+    mem_limit: 1g
 
   redis:
     image: redis:7
     ports: ["6379:6379"]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   cassandra:
     image: cassandra:5.0
+    environment:
+      # cassandra-env.sh exige las dos juntas: si se define solo MAX_HEAP_SIZE,
+      # las ignora y vuelve a calcular el heap por su cuenta.
+      MAX_HEAP_SIZE: 1G
+      HEAP_NEWSIZE: 200M
     ports: ["9042:9042"]
     volumes:
       - cassandra_data:/var/lib/cassandra
+    mem_limit: 2g
+    healthcheck:
+      # Cassandra tarda cerca de un minuto en aceptar CQL. Sin esto,
+      # "up -d" vuelve antes de que la base este lista y la app no conecta.
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' > /dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
 
 volumes:
   pg_data:
