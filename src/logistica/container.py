@@ -211,6 +211,33 @@ class Contenedor:
         return MongoAlertaRepository(self.base_mongo)
 
     @cached_property
+    def solicitudes_reporte(self):
+        from logistica.infrastructure.mongo.solicitud_reporte_repository import (
+            MongoSolicitudReporteRepository,
+        )
+
+        return MongoSolicitudReporteRepository(self.base_mongo)
+
+    @cached_property
+    def solicitudes(self):
+        """Solicitud, generacion y facturacion de reportes parametrizados.
+
+        Reusa los servicios que ya saben calcular cada reporte en vez de
+        consultar las bases por su cuenta (D54)."""
+        from logistica.services.solicitud_reporte_service import (
+            SolicitudReporteService,
+        )
+
+        return SolicitudReporteService(
+            self.solicitudes_reporte,
+            self.unidad_de_trabajo,
+            reportes=self.reportes,
+            incidentes=self.incidentes_service,
+            facturacion=self.facturacion,
+            envios=self.envios,
+        )
+
+    @cached_property
     def contenedores_service(self):
         from logistica.services.contenedor_service import ContenedorService
 

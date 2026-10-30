@@ -6,8 +6,10 @@ contexto y el denominador de los promedios estan en PostgreSQL.
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from uuid import UUID, uuid4
 
+from logistica.domain.envio import EstadoEnvio
 from logistica.domain.incidente import (
     ContextoEnvio,
     EstadoIncidente,
@@ -27,17 +29,19 @@ log = logging.getLogger(__name__)
 
 LIMITE_RANKING_POR_DEFECTO = 10
 
-# Ejes para los que el promedio significa algo: hacen falta un numerador y un
-# denominador que hablen de la misma poblacion. Quedan afuera:
-#
-# - ESTADO: agrupa por el estado del INCIDENTE (ABIERTO, RESUELTO...), que no
-#   es un estado de envio. "Incidentes ABIERTO / envios ABIERTO" no existe.
-# - RUTA: no hay "envios de la ruta ARBUE->NLRTM"; la ruta sale de los tramos.
-# - PAIS_ORIGEN: EnvioRepository resuelve el pais por la ubicacion de DESTINO.
-EJES_CON_PROMEDIO = (
-    AgrupacionIncidentes.CLIENTE,
-    AgrupacionIncidentes.PAIS_DESTINO,
-)
+class EjePromedio(Enum):
+    """Los tres ejes que pide el enunciado: "promedio de incidentes por pais /
+    estado / cliente".
+
+    Es un enum propio del servicio y no el del repositorio, porque cada eje se
+    resuelve distinto: dos los agrupa MongoDB por un campo del snapshot, y el
+    tercero necesita a PostgreSQL para saber en que estado esta cada envio
+    (D53).
+    """
+
+    PAIS = "PAIS"
+    ESTADO = "ESTADO"
+    CLIENTE = "CLIENTE"
 
 
 @dataclass(frozen=True)
@@ -172,27 +176,24 @@ class IncidenteService:
             conteos = self._resolver_clientes(conteos)
         return conteos
 
-    def promedio_por(
-        self, agrupacion: AgrupacionIncidentes
-    ) -> list[PromedioIncidentes]:
-        """Incidentes por envio de cada grupo.
+    def promedio_por(self, eje: EjePromedio) -> list[PromedioIncidentes]:
+        """Incidentes por envio, agrupados por pais, estado o cliente.
 
         El numerador lo cuenta MongoDB con una agregacion; el denominador sale
         de PostgreSQL, que es el que sabe cuantos envios hay. Ninguna de las dos
         bases puede responder esto sola: por eso el promedio lo arma el
         servicio y no una consulta.
         """
-        if agrupacion not in EJES_CON_PROMEDIO:
-            ejes = ", ".join(e.value for e in EJES_CON_PROMEDIO)
-            raise ValidacionError(
-                f"No se puede promediar por {agrupacion.value}: PostgreSQL no "
-                f"cuenta envios por ese eje. Ejes disponibles: {ejes}"
-            )
+        if eje is EjePromedio.ESTADO:
+            return self._promedio_por_estado_de_envio()
 
+        agrupacion = (
+            AgrupacionIncidentes.CLIENTE
+            if eje is EjePromedio.CLIENTE
+            else AgrupacionIncidentes.PAIS_DESTINO
+        )
         conteos = self._incidentes.contar_agrupado(agrupacion)
-        etiquetas = {}
-        if agrupacion is AgrupacionIncidentes.CLIENTE:
-            etiquetas = self._razones_sociales()
+        etiquetas = self._razones_sociales() if eje is EjePromedio.CLIENTE else {}
 
         resultado = []
         with self._uow as uow:
@@ -207,13 +208,43 @@ class IncidenteService:
                 )
         return sorted(resultado, key=lambda p: p.promedio, reverse=True)
 
+    def _promedio_por_estado_de_envio(self) -> list[PromedioIncidentes]:
+        """Promedio agrupado por el estado del ENVIO, no el del incidente.
+
+        Es el unico eje que ninguna base puede agrupar sola: el estado del
+        envio vive en PostgreSQL y **cambia con el tiempo**, asi que no se
+        guarda en el snapshot del incidente (D12) -quedaria desactualizado-.
+        MongoDB cuenta los incidentes de cada envio, PostgreSQL dice en que
+        estado esta hoy cada uno, y el servicio los suma por estado.
+
+        Los estados sin ningun envio aparecen igual, con cero: que no haya
+        envios CANCELADO es informacion, y omitir la fila lo haria parecer un
+        dato faltante.
+        """
+        por_envio = {
+            c.grupo: c.cantidad
+            for c in self._incidentes.contar_agrupado(AgrupacionIncidentes.ENVIO)
+        }
+
+        resultado = []
+        with self._uow as uow:
+            for estado in EstadoEnvio:
+                envios = uow.envios.listar_por_estado(estado)
+                incidentes = sum(por_envio.get(str(e.id), 0) for e in envios)
+                resultado.append(
+                    PromedioIncidentes(
+                        grupo=estado.value, incidentes=incidentes, envios=len(envios)
+                    )
+                )
+        return sorted(resultado, key=lambda p: p.promedio, reverse=True)
+
     @staticmethod
     def _contar_envios(
         uow: UnidadDeTrabajo, agrupacion: AgrupacionIncidentes, grupo: str
     ) -> int:
-        """Una consulta por grupo. Son pocos grupos (cuatro clientes, cinco
-        estados), asi que no se arma un conteo agrupado en PostgreSQL solo para
-        esto."""
+        """Una consulta por grupo. Son pocos grupos (cuatro clientes, un
+        punado de paises), asi que no se arma un conteo agrupado en PostgreSQL
+        solo para esto."""
         if agrupacion is AgrupacionIncidentes.CLIENTE:
             try:
                 cliente_id = UUID(grupo)

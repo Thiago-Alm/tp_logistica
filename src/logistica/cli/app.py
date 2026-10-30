@@ -23,6 +23,7 @@ from logistica.cli import (
     menu_partes,
     menu_reportes,
     menu_sincronizacion,
+    menu_solicitudes,
     menu_usuarios,
 )
 from logistica.cli.permisos import (
@@ -186,6 +187,17 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
         # material de auditoria; adentro, cada opcion declara su propio nivel y
         # las filtra el mismo `opciones_para`. Un auditor ve las de lectura, un
         # operador agrega las de operacion y un administrador la configuracion.
+        (
+            NIVEL_AUDITOR,
+            "Solicitudes de reportes (facturables)",
+            lambda: menu_solicitudes.construir(
+                contenedor.solicitudes,
+                contenedor.clientes,
+                contenedor.proveedores_service,
+                contenedor.operadores_service,
+                rol_nivel=nivel,
+            ),
+        ),
         (
             NIVEL_AUDITOR,
             "Incidentes",

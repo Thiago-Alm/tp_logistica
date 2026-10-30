@@ -3,6 +3,7 @@
 Sin bases externas: la UnidadDeTrabajo y el repositorio de incidentes son dobles.
 """
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -18,7 +19,7 @@ from logistica.domain.reportes import ConteoIncidentes
 from logistica.domain.ubicacion import TipoUbicacion, Ubicacion
 from logistica.exceptions import NoEncontrado, ValidacionError
 from logistica.repositories.incidente_repository import AgrupacionIncidentes
-from logistica.services.incidente_service import IncidenteService
+from logistica.services.incidente_service import EjePromedio, IncidenteService
 
 AHORA = datetime(2026, 10, 29, 12, 0, tzinfo=timezone.utc)
 
@@ -206,28 +207,51 @@ def test_el_promedio_cruza_mongo_y_postgres():
     ]
     uow.envios.listar_por_pais_destino.return_value = [MagicMock()] * 8
 
-    promedios = servicio.promedio_por(AgrupacionIncidentes.PAIS_DESTINO)
+    promedios = servicio.promedio_por(EjePromedio.PAIS)
     assert promedios[0].incidentes == 4
     assert promedios[0].envios == 8
     assert promedios[0].promedio == 0.5
 
 
-@pytest.mark.parametrize(
-    "eje",
-    [
-        AgrupacionIncidentes.ESTADO,
-        AgrupacionIncidentes.RUTA,
-        AgrupacionIncidentes.PAIS_ORIGEN,
-    ],
-)
-def test_no_se_promedia_por_un_eje_sin_denominador(eje):
-    """ESTADO agrupa por el estado del INCIDENTE, que no es un estado de envio:
-    "incidentes ABIERTO / envios ABIERTO" no existe. Antes esto se filtraba y
-    explotaba con un ValueError de Python al construir EstadoEnvio."""
-    servicio, repositorio, _ = armar()
-    with pytest.raises(ValidacionError):
-        servicio.promedio_por(eje)
-    repositorio.contar_agrupado.assert_not_called()
+def test_el_promedio_por_estado_usa_el_estado_del_ENVIO():
+    """El enunciado pide "por pais / estado / cliente", y ese estado es el del
+    envio. El del incidente (ABIERTO, RESUELTO) es otra cosa y no tiene
+    denominador: "incidentes ABIERTO / envios ABIERTO" no existe."""
+    servicio, repositorio, uow = armar()
+    entregado, otro = uuid4(), uuid4()
+    repositorio.contar_agrupado.return_value = [
+        ConteoIncidentes(grupo=str(entregado), cantidad=3),
+        ConteoIncidentes(grupo=str(otro), cantidad=1),
+    ]
+
+    def por_estado(estado):
+        if estado is EstadoEnvio.ENTREGADO:
+            return [SimpleNamespace(id=entregado)]
+        if estado is EstadoEnvio.EN_TRANSITO:
+            return [SimpleNamespace(id=otro), SimpleNamespace(id=uuid4())]
+        return []
+
+    uow.envios.listar_por_estado.side_effect = por_estado
+    promedios = {p.grupo: p for p in servicio.promedio_por(EjePromedio.ESTADO)}
+
+    repositorio.contar_agrupado.assert_called_once_with(AgrupacionIncidentes.ENVIO)
+    assert promedios["ENTREGADO"].incidentes == 3
+    assert promedios["ENTREGADO"].envios == 1
+    assert promedios["ENTREGADO"].promedio == 3.0
+    # Dos envios en transito, uno con un incidente.
+    assert promedios["EN_TRANSITO"].promedio == 0.5
+
+
+def test_el_promedio_por_estado_muestra_los_estados_vacios():
+    """Que no haya envios CANCELADO es informacion; omitir la fila lo haria
+    parecer un dato faltante."""
+    servicio, repositorio, uow = armar()
+    repositorio.contar_agrupado.return_value = []
+    uow.envios.listar_por_estado.return_value = []
+
+    promedios = servicio.promedio_por(EjePromedio.ESTADO)
+    assert {p.grupo for p in promedios} == {e.value for e in EstadoEnvio}
+    assert all(p.promedio == 0.0 for p in promedios)
 
 
 def test_cero_envios_no_divide_por_cero():
@@ -236,7 +260,7 @@ def test_cero_envios_no_divide_por_cero():
         ConteoIncidentes(grupo="Holanda", cantidad=2)
     ]
     uow.envios.listar_por_pais_destino.return_value = []
-    assert servicio.promedio_por(AgrupacionIncidentes.PAIS_DESTINO)[0].promedio == 0.0
+    assert servicio.promedio_por(EjePromedio.PAIS)[0].promedio == 0.0
 
 
 def test_un_cliente_guardado_con_basura_se_denuncia():
@@ -245,7 +269,7 @@ def test_un_cliente_guardado_con_basura_se_denuncia():
         ConteoIncidentes(grupo="no-es-un-uuid", cantidad=1)
     ]
     with pytest.raises(ValidacionError):
-        servicio.promedio_por(AgrupacionIncidentes.CLIENTE)
+        servicio.promedio_por(EjePromedio.CLIENTE)
 
 
 def test_el_promedio_ordena_de_mayor_a_menor():
@@ -256,5 +280,5 @@ def test_el_promedio_ordena_de_mayor_a_menor():
     ]
     uow.envios.listar_por_pais_destino.return_value = [MagicMock()] * 3
 
-    promedios = servicio.promedio_por(AgrupacionIncidentes.PAIS_DESTINO)
+    promedios = servicio.promedio_por(EjePromedio.PAIS)
     assert [p.grupo for p in promedios] == ["Brasil", "Holanda"]

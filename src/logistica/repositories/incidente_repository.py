@@ -17,8 +17,14 @@ class AgrupacionIncidentes(Enum):
     PAIS_ORIGEN = "PAIS_ORIGEN"
     PAIS_DESTINO = "PAIS_DESTINO"
     CLIENTE = "CLIENTE"
-    ESTADO = "ESTADO"
+    # Es el estado del INCIDENTE (ABIERTO, RESUELTO...), no el del envio. Se
+    # llama asi desde que se confundieron: el estado del envio no esta en el
+    # documento, vive en PostgreSQL y cambia con el tiempo.
+    ESTADO_INCIDENTE = "ESTADO_INCIDENTE"
     RUTA = "RUTA"
+    # Agrupa por envio. No es un reporte en si: es el insumo para los que
+    # cruzan con PostgreSQL, como el promedio por estado de envio (D53).
+    ENVIO = "ENVIO"
 
 
 class IncidenteRepository(ABC):

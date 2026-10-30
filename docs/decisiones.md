@@ -2081,3 +2081,128 @@ A diferencia de clientes o contenedores, un umbral **no lo referencia nadie**:
 una alerta ya creada guarda en su detalle el limite que se violo, asi que sigue
 siendo legible sin el umbral. Lo que si cambia es que esa magnitud deja de
 evaluarse, y el control de cobertura (D48) la va a marcar como faltante.
+
+---
+
+## D53 — El promedio "por estado" es por estado del ENVIO, y es el unico eje que ninguna base agrupa sola
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `IncidenteService`, MongoDB, PostgreSQL
+
+El enunciado pide "Reporte analitico de **Promedio de incidentes por pais /
+estado / cliente**". Habia una confusion: `AgrupacionIncidentes.ESTADO`
+agrupaba por `$estado`, que es el estado del **incidente** (ABIERTO,
+EN_ANALISIS, RESUELTO, CERRADO). Eso no es lo que pide el enunciado y ademas no
+tiene denominador: "incidentes ABIERTO / envios ABIERTO" no existe.
+
+El estado que importa es el del **envio**. Y ahi aparece el caso mas
+interesante de todo el sistema:
+
+**El estado del envio no esta en el documento del incidente, y no puede
+estarlo.** El snapshot de D12 congela las circunstancias del incidente —
+cliente, origen, destino, paises — porque son datos que describen *cuando
+ocurrio*. El estado del envio **cambia con el tiempo**: un envio que estaba
+EN_TRANSITO cuando se cargo el incidente hoy puede estar ENTREGADO. Congelarlo
+daria un reporte que envejece mal.
+
+**Entonces lo resuelven las dos bases juntas:**
+
+1. MongoDB agrupa los incidentes **por envio** (`AgrupacionIncidentes.ENVIO`).
+2. PostgreSQL dice en que estado esta **hoy** cada envio.
+3. El servicio suma, por estado, los incidentes de sus envios.
+
+Ninguna consulta sola lo responde. Es el ejemplo mas claro de por que el
+sistema es poliglota, mas todavia que el promedio por cliente: ahi MongoDB al
+menos tiene la clave agrupadora en el documento.
+
+**Los estados sin envios aparecen igual, con cero.** Que no haya envios
+CANCELADO es informacion; omitir la fila lo haria parecer un dato faltante.
+
+**El enum del repositorio se renombro a `ESTADO_INCIDENTE`.** Se llamaba
+`ESTADO` a secas y por eso se confundio. El nombre ahora dice cual de los dos
+estados es, y sigue sirviendo para el conteo simple (cuantos incidentes hay
+abiertos, resueltos, etc.).
+
+**El servicio expone su propio enum `EjePromedio` (PAIS, ESTADO, CLIENTE)**, que
+es literalmente lo que nombra el enunciado, en vez de filtrar hacia el menu el
+enum del repositorio. Cada eje se resuelve distinto por dentro, y el menu no
+tiene por que saberlo.
+
+---
+
+## D54 — Un reporte se pide, se genera y se factura: tres pasos, tres motores
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `SolicitudReporte`, MongoDB, PostgreSQL, facturacion
+
+El enunciado pide "**Solicitud de reportes**" y "**Creacion de reportes
+operativos y analiticos parametrizados (facturables)**". Son dos puntos que
+describen un mismo flujo: alguien pide un reporte con parametros, el sistema lo
+calcula, y eso se le cobra.
+
+### Por que la solicitud vive en MongoDB
+
+**Los parametros cambian segun el reporte.** El de envios por pais lleva un
+rango de fechas; el ranking de clientes lleva ademas un limite; el de costos
+por tipo de transporte no lleva ninguno; el promedio de incidentes lleva un eje.
+En PostgreSQL eso serian o una columna por parametro —casi todas en NULL— o una
+columna JSON, que es un documento disfrazado. Es el mismo criterio que llevo los
+umbrales a MongoDB (D25).
+
+Lo que **si** vive en PostgreSQL es su consecuencia: la factura, porque eso es
+dinero y necesita la transaccion de la cuenta corriente (D41).
+
+### Por que son tres operaciones y no una
+
+`solicitar()` registra el pedido y le pone precio. `generar()` calcula.
+`facturar()` emite. Juntarlas seria mas corto y estaria peor:
+
+- **Pueden fallar por separado.** El pedido queda registrado aunque el calculo
+  falle, y se puede reintentar. Si fuera un solo metodo, un error de PostgreSQL
+  borraria el pedido del titular.
+- **Pasan en momentos distintos.** Un reporte pesado se pide ahora y se genera
+  despues; la facturacion puede ser al cierre.
+- **Queda la traza.** Se ve que se pidio aunque despues se cancele.
+
+### El precio queda congelado en la solicitud
+
+Como el contexto de un incidente (D12): si manana cambia la tarifa, se factura
+**lo que se cotizo cuando el titular lo pidio**. Hay un test que verifica que el
+importe facturado sale de la solicitud y no del catalogo.
+
+El tarifario distingue **operativo** (150) de **analitico** (450): un reporte
+analitico agrega sobre todo el historico en vez de contar lo que hay hoy. Es una
+constante y no un ABM de tarifas porque el enunciado no lo pide; si lo pidiera,
+iria a MongoDB al lado de los umbrales.
+
+### El servicio no consulta las bases: reusa los reportes que ya existen
+
+`_calcular()` despacha a `ReporteService`, `IncidenteService` o `EnvioService`
+segun el tipo. Lo suyo es el **ciclo de vida del pedido**, no la consulta. Como
+efecto, los reportes solicitados aprovechan la cache de Redis (D44) sin hacer
+nada especial.
+
+### La parte honesta: el cuarto paso queda afuera de la transaccion
+
+`facturar()` llama a `FacturacionService.emitir()`, que mete factura, movimiento
+y saldo en **una sola transaccion** de PostgreSQL (D41). Despues marca la
+solicitud como FACTURADA en MongoDB.
+
+**Ese ultimo paso no esta en la transaccion**, porque MongoDB y PostgreSQL no
+comparten una. Si fallara, quedaria una factura emitida y una solicitud en
+GENERADA. No se resolvio con un Outbox —seria el tercer destino y el evento no
+proyecta nada, solo cierra un estado—: se resolvio **haciendolo visible**.
+`listar_pendientes_de_facturar()` devuelve justo las GENERADA, y el menu la
+ofrece como primer paso de "Facturar un reporte generado". Si una quedo a
+medias, aparece ahi y se vuelve a intentar; como `emitir()` se llamaria dos
+veces, el operador ve la factura ya emitida en la cuenta del titular.
+
+Es la misma clase de decision que D41 con el saldo denormalizado: se acepta una
+ventana de inconsistencia **y se agrega la herramienta para encontrarla**, en
+vez de pretender que no existe.
+
+### Validacion de parametros en el dominio
+
+Cada tipo de reporte declara en el `CATALOGO` que parametros acepta, y la
+entidad rechaza los que sobran: pedir un limite a un reporte que no lo usa es un
+error del **pedido**, no de la ejecucion, asi que se detecta al solicitar y no
+cuando ya se cobro. Hay un test que verifica que el catalogo cubre todos los
+tipos: uno sin especificacion reventaria al validar.

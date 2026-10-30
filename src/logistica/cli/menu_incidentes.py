@@ -17,7 +17,7 @@ from logistica.domain.incidente import (
 )
 from logistica.exceptions import LogisticaError
 from logistica.repositories.incidente_repository import AgrupacionIncidentes
-from logistica.services.incidente_service import IncidenteService
+from logistica.services.incidente_service import EjePromedio, IncidenteService
 
 
 def _elegir(etiqueta: str, enum) -> object | None:
@@ -200,11 +200,16 @@ def construir(
             "MongoDB cuenta los incidentes y PostgreSQL los envios: el promedio "
             "no lo puede responder ninguna de las dos bases sola."
         )
-        agrupacion = _elegir("Agrupar por", AgrupacionIncidentes)
-        if agrupacion is None:
+        eje = _elegir("Agrupar por", EjePromedio)
+        if eje is None:
             return
+        if eje is EjePromedio.ESTADO:
+            consola.aviso(
+                "Es el estado del ENVIO, no el del incidente: vive en PostgreSQL "
+                "y cambia con el tiempo, por eso no esta en el snapshot (D53)."
+            )
         try:
-            promedios = servicio.promedio_por(agrupacion)
+            promedios = servicio.promedio_por(eje)
         except LogisticaError as error:
             consola.error(str(error))
             return
@@ -212,7 +217,7 @@ def construir(
             consola.aviso("No hay incidentes cargados.")
             return
         consola.tabla(
-            [agrupacion.value, "INCIDENTES", "ENVIOS", "PROMEDIO"],
+            [eje.value, "INCIDENTES", "ENVIOS", "PROMEDIO"],
             [
                 [p.grupo, str(p.incidentes), str(p.envios), f"{p.promedio:.2f}"]
                 for p in promedios
@@ -227,7 +232,7 @@ def construir(
         (NIVEL_AUDITOR, "Incidentes de un envio", listar_por_envio),
         (NIVEL_OPERADOR, "Cambiar el estado de un incidente", cambiar_estado),
         (NIVEL_AUDITOR, "Ranking de rutas con mas incidentes", ranking_de_rutas),
-        (NIVEL_AUDITOR, "Incidentes por pais, cliente, estado o ruta", contar_por_grupo),
-        (NIVEL_AUDITOR, "Promedio de incidentes por envio", promedio_por_grupo),
+        (NIVEL_AUDITOR, "Contar incidentes por pais, cliente, ruta o estado", contar_por_grupo),
+        (NIVEL_AUDITOR, "Promedio de incidentes por pais / estado / cliente", promedio_por_grupo),
     ]
     consola.menu("Incidentes", opciones_para(rol_nivel, secciones))
