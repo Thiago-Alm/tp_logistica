@@ -58,6 +58,13 @@ class PostgresContenedorRepository(ContenedorRepository):
         return _a_contenedor(fila) if fila else None
 
     @traducir_errores
+    def listar(self) -> list[Contenedor]:
+        filas = self._conexion.execute(
+            f"select {COLUMNAS} from contenedor order by codigo_iso"
+        ).fetchall()
+        return [_a_contenedor(f) for f in filas]
+
+    @traducir_errores
     def listar_por_estado(self, estado: EstadoContenedor) -> list[Contenedor]:
         filas = self._conexion.execute(
             f"select {COLUMNAS} from contenedor where estado = %s order by codigo_iso",

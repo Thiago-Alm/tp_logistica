@@ -8,7 +8,7 @@ import pytest
 from logistica.domain.alerta import Alerta
 from logistica.domain.lectura import Lectura, Posicion
 from logistica.domain.umbral import MagnitudUmbral, Umbral
-from logistica.exceptions import ErrorDePersistencia, ValidacionError
+from logistica.exceptions import ErrorDePersistencia, NoEncontrado, ValidacionError
 from logistica.jobs.simulador_iot import (
     MAX_ERRORES_SEGUIDOS,
     GeneradorDeLecturas,
@@ -74,6 +74,12 @@ class AlertasEnMemoria(AlertaRepository):
             return False
         self.guardadas[alerta.id] = alerta
         return True
+
+    def actualizar(self, alerta: Alerta) -> None:
+        # `guardar` es insert-if-not-exists; modificar es otra operacion (D48).
+        if alerta.id not in self.guardadas:
+            raise NoEncontrado(f"No existe la alerta {alerta.id}")
+        self.guardadas[alerta.id] = alerta
 
     def obtener(self, id) -> Alerta | None:
         return self.guardadas.get(id)

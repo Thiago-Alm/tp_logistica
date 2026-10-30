@@ -22,7 +22,11 @@ from logistica.infrastructure.postgres.reporte_envio_repository import (
     PostgresReporteEnvioRepository,
 )
 from logistica.infrastructure.postgres.rol_repository import PostgresRolRepository
+from logistica.infrastructure.postgres.sensor_repository import PostgresSensorRepository
 from logistica.infrastructure.postgres.tramo_repository import PostgresTramoRepository
+from logistica.infrastructure.postgres.ubicacion_repository import (
+    PostgresUbicacionRepository,
+)
 from logistica.infrastructure.postgres.usuario_repository import PostgresUsuarioRepository
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 
@@ -46,6 +50,8 @@ class UnidadDeTrabajoPostgres(UnidadDeTrabajo):
         self.envios = PostgresEnvioRepository(self._conexion)
         self.tramos = PostgresTramoRepository(self._conexion)
         self.contenedores = PostgresContenedorRepository(self._conexion)
+        self.sensores = PostgresSensorRepository(self._conexion)
+        self.ubicaciones = PostgresUbicacionRepository(self._conexion)
         self.reportes_envio = PostgresReporteEnvioRepository(self._conexion)
         self.outbox = PostgresOutboxRepository(self._conexion)
         self.consistencia = PostgresConsistenciaRepository(self._conexion)

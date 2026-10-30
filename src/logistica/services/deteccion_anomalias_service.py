@@ -18,6 +18,11 @@ _MEDICIONES = (
     (MagnitudUmbral.TEMPERATURA, TipoAlerta.TEMPERATURA, lambda lectura: lectura.temperatura),
 )
 
+# Las magnitudes que este servicio realmente compara contra un umbral. La
+# publica para que el control de cobertura no reporte como "faltante" un umbral
+# que nadie va a consultar: solo es un hueco si la deteccion lo necesita.
+MAGNITUDES_EVALUADAS = tuple(magnitud for magnitud, _, _ in _MEDICIONES)
+
 
 class DeteccionAnomaliasService:
     """Evalua lecturas y, si violan un umbral, crea la alerta en MongoDB.

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from logistica.domain.alerta import Alerta, EstadoAlerta
 from logistica.domain.lectura import Lectura
 from logistica.domain.umbral import MagnitudUmbral, Umbral
+from logistica.exceptions import NoEncontrado
 from logistica.repositories.alerta_repository import AlertaRepository
 from logistica.repositories.umbral_repository import UmbralRepository
 from logistica.services.deteccion_anomalias_service import DeteccionAnomaliasService
@@ -38,6 +39,12 @@ class AlertasEnMemoria(AlertaRepository):
             return False
         self.guardadas[alerta.id] = alerta
         return True
+
+    def actualizar(self, alerta: Alerta) -> None:
+        # `guardar` es insert-if-not-exists; modificar es otra operacion (D48).
+        if alerta.id not in self.guardadas:
+            raise NoEncontrado(f"No existe la alerta {alerta.id}")
+        self.guardadas[alerta.id] = alerta
 
     def obtener(self, id: UUID) -> Alerta | None:
         return self.guardadas.get(id)

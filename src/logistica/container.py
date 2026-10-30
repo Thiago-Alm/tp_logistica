@@ -210,6 +210,50 @@ class Contenedor:
 
         return MongoAlertaRepository(self.base_mongo)
 
+    @cached_property
+    def incidentes_service(self):
+        """Incidentes: viven en MongoDB, pero el snapshot del envio y el
+        denominador de los promedios salen de PostgreSQL."""
+        from logistica.services.incidente_service import IncidenteService
+
+        return IncidenteService(self.incidentes, self.unidad_de_trabajo)
+
+    @cached_property
+    def monitoreo(self):
+        """Monitoreo IoT: lecturas en Cassandra, umbrales y alertas en MongoDB,
+        ficha del sensor en PostgreSQL."""
+        from logistica.services.monitoreo_service import MonitoreoService
+
+        return MonitoreoService(
+            self.lecturas,
+            self.umbrales,
+            self.alertas,
+            self.unidad_de_trabajo,
+        )
+
+    @cached_property
+    def deteccion_anomalias(self):
+        """Compara cada lectura con el umbral de su tipo de contenedor.
+
+        El servicio no consulta PostgreSQL: recibe una funcion que dice de que
+        tipo es cada contenedor. Aca se arma con el repositorio, cacheando el
+        mapa una vez por proceso: los tipos de contenedor no cambian mientras
+        corre una deteccion.
+        """
+        from logistica.services.deteccion_anomalias_service import (
+            DeteccionAnomaliasService,
+        )
+
+        tipos: dict = {}
+
+        def tipo_de_contenedor(contenedor_id):
+            if not tipos:
+                with self.unidad_de_trabajo as uow:
+                    tipos.update({c.id: c.tipo for c in uow.contenedores.listar()})
+            return tipos.get(contenedor_id)
+
+        return DeteccionAnomaliasService(self.umbrales, self.alertas, tipo_de_contenedor)
+
     # -- Sincronizacion ------------------------------------------------------
 
     @cached_property

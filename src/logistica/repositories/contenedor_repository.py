@@ -37,6 +37,11 @@ class ContenedorRepository(ABC):
         ...
 
     @abstractmethod
+    def listar(self) -> list["Contenedor"]:
+        """Todos los contenedores, por codigo ISO."""
+        ...
+
+    @abstractmethod
     def listar_por_estado(self, estado: EstadoContenedor) -> list[Contenedor]:
         """Requisito: "Gestion de contenedores". Con DISPONIBLE da los
         contenedores asignables a un envio nuevo."""

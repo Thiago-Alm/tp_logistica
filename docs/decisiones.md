@@ -1693,3 +1693,172 @@ grafo ni se consulta.
 **Las consultas no pasan por la cache de reportes (D44).** Son consultas
 puntuales por id, no agregaciones que varios usuarios piden con los mismos
 parametros, asi que la cache no ahorraria nada.
+
+---
+
+## D47 — El promedio de incidentes lo arma el servicio, porque ninguna base lo puede responder sola
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `IncidenteService`, MongoDB, PostgreSQL, menu "Incidentes"
+
+Los incidentes viven en MongoDB y los envios en PostgreSQL. "Promedio de
+incidentes por envio" necesita las dos: **MongoDB cuenta el numerador** con una
+agregacion por grupo, **PostgreSQL cuenta el denominador** porque es el que sabe
+cuantos envios hay. Ninguna consulta sola lo responde, asi que lo compone el
+servicio. Es el ejemplo mas claro de por que el sistema es poliglota y no un
+capricho: la pregunta cruza la frontera entre los dos motores.
+
+**En que ejes tiene sentido, y en cuales no.** El promedio exige que numerador y
+denominador hablen de la misma poblacion:
+
+| Eje | Promedio | Por que |
+|---|---|---|
+| CLIENTE | si | `listar_por_cliente` cuenta sus envios |
+| PAIS_DESTINO | si | `listar_por_pais_destino` cuenta los envios al pais |
+| ESTADO | **no** | agrupa por el estado del **incidente** (ABIERTO, RESUELTO), que no es un estado de envio: "incidentes ABIERTO / envios ABIERTO" no existe |
+| RUTA | **no** | no hay "envios de la ruta ARBUE->NLRTM": la ruta sale de los tramos |
+| PAIS_ORIGEN | **no** | `EnvioRepository` resuelve el pais por la ubicacion de **destino** |
+
+El eje que no corresponde se rechaza con `ValidacionError` **nombrando los ejes
+disponibles**. La primera version aceptaba ESTADO y reventaba con un `ValueError`
+de Python al intentar construir `EstadoEnvio("ABIERTO")`: el error aparecio
+corriendo el servicio contra las bases reales, no en los tests, porque los
+dobles no conocen los valores validos de un enum.
+
+**La razon social la resuelve el servicio.** MongoDB guarda el cliente como
+UUID, porque la razon social vive en PostgreSQL y duplicarla en cada documento
+la dejaria desactualizada. El servicio trae el mapa de clientes y lo resuelve
+antes de devolver (D2). Si un documento tuviera guardado algo que no es un UUID,
+se rechaza con `ValidacionError` en vez de promediar cualquier cosa.
+
+**El denominador se cuenta por grupo, con una consulta cada uno.** Son pocos
+grupos (cuatro clientes, un pais por destino), asi que no se arma una agregacion
+en PostgreSQL solo para esto. Si los grupos crecieran, aca habria que cambiarlo.
+
+### El alta congela el contexto del envio
+
+`registrar()` arma el `ContextoEnvio` leyendo PostgreSQL —cliente, ubicacion de
+origen y de destino, con sus paises— y lo **congela** en el documento (D12). Las
+cuatro lecturas van en la misma transaccion (D28): el snapshot tiene que ser
+coherente entre si, no una mezcla de dos momentos.
+
+**Si falta una ubicacion, el incidente no se guarda.** No deberia pasar porque
+hay clave foranea, pero si pasara, un snapshot a medias ensuciaria el ranking de
+rutas para siempre: un incidente con la ruta incompleta queda mal contado en
+todas las consultas futuras. Es mas barato fallar el alta.
+
+**La ruta usa el LOCODE y no el nombre.** `ARBUE->NLRTM` y no
+`Puerto de Buenos Aires->Puerto de Rotterdam`: es corto, univoco y es lo que
+indexa MongoDB para el ranking (D12).
+
+**El estado cambia por el dominio.** `cambiar_estado()` trae el incidente, le
+pide `pasar_a()` a la entidad —que valida la transicion y deja el cambio en el
+historial embebido— y recien despues lo persiste con `actualizar()`. No hay un
+`cambiar_estado(id, estado)` en el repositorio (D18).
+
+---
+
+## D48 — El monitoreo IoT reparte cuatro motores en un solo caso de uso
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `MonitoreoService`, menu "Monitoreo IoT y alertas"
+
+Una sola pantalla —seguir un sensor— toca cuatro bases, y cada una esta elegida
+por la forma de su dato:
+
+| Dato | Motor | Por que |
+|---|---|---|
+| Ficha del sensor (modelo, numero de serie, cada cuanto reporta) | PostgreSQL | dato estable que se relaciona con el contenedor |
+| Lectura (temperatura, humedad, vibracion, posicion) | Cassandra | serie temporal que crece sin parar, se consulta por sensor y rango (D20) |
+| Umbral | MongoDB | configuracion chica y de forma distinta segun el tipo de contenedor (D25) |
+| Alerta | MongoDB | documento con el detalle embebido de lo que se violo |
+
+**El sensor pasa a ser una entidad de dominio.** No existia: el simulador
+consultaba la tabla `sensor` con SQL directo y dejaba anotado "cuando exista el
+repositorio, se reemplaza". Ahora hay `Sensor`, `SensorRepository` y su
+implementacion PostgreSQL, y entran en la Unidad de Trabajo como los demas
+(D28). Sin esto el menu obligaba a tipear un UUID de sensor sacado de la nada.
+
+**Tambien se agrega `Ubicacion`.** Hacia falta para el snapshot de D47: el envio
+guarda `origen_id` y `destino_id`, y el nombre y el pais estaban solo en la
+tabla. De paso le sirve al menu de envios, que hoy pide esos ids crudos.
+
+**Se busca por numero de serie, no por UUID.** Igual que el contenedor por su
+codigo ISO (D45): el numero de serie esta impreso en el equipo y es lo que tiene
+a mano un operador. El UUID sigue funcionando.
+
+**El tope de dias es el del contrato.** `historico()` reusa
+`MAX_DIAS_POR_CONSULTA` y `dias_del_rango()` de `LecturaRepository`, los mismos
+que el recorrido GPS (D45): cada dia es una particion de Cassandra y el limite se
+declara una sola vez.
+
+### El control de cobertura de umbrales
+
+Nace de un error real: los umbrales cubrian **2 de los 7 tipos de contenedor**,
+asi que la deteccion salteaba sensores **en silencio** y nadie se enteraba. Al
+completarlos, una corrida identica paso de 14 a 45 alertas. Una configuracion
+incompleta es peor que una ausente, porque parece que esta funcionando.
+
+`cobertura_de_umbrales()` cruza los tres motores que participan de la deteccion
+—sensores y tipo de contenedor de PostgreSQL, umbrales de MongoDB— y lista, por
+tipo de contenedor en uso, que magnitudes tienen umbral y cuales no.
+
+**Solo mira las magnitudes que la deteccion realmente evalua.** La primera
+version comparaba contra todas las de `MagnitudUmbral` y reportaba HUMEDAD y
+VIBRACION como faltantes en los tres tipos, cuando el servicio de deteccion solo
+compara temperatura a proposito. Un control que grita por algo deliberado
+entrena a ignorarlo. Ahora `DeteccionAnomaliasService` publica
+`MAGNITUDES_EVALUADAS` y el control usa esa lista: **algo es un hueco solo si la
+deteccion lo necesita**.
+
+### Reconocer una alerta necesito un metodo nuevo
+
+`AlertaRepository.guardar()` es un **insert-if-not-exists** (`$setOnInsert`): si
+la alerta ya existe no la toca, porque el id es deterministico y reintentar una
+deteccion no debe duplicarla (D33). Eso significa que `guardar()` **no sirve para
+modificar**: reconocer o cerrar una alerta llamando a `guardar()` no hubiera
+guardado nada, en silencio. Se agrego `actualizar()`, que hace `replace_one` y
+lanza `NoEncontrado` si no existe, igual que `IncidenteRepository`.
+
+**La alerta no tiene mapa de transiciones** como el envio (D4) o el incidente:
+sus tres estados son una secuencia lineal, asi que la unica regla es que
+`CERRADA` es final.
+
+---
+
+## D49 — El filtro de permisos se reusa dentro de los submenus
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `cli/permisos.py`, menus de incidentes y monitoreo
+
+D42 puso el control de acceso en el menu principal: cada seccion declara su
+nivel minimo y `opciones_para()` filtra y renumera. Al sumar incidentes y
+monitoreo aparecio un caso que ese nivel unico no cubre: **dentro de una misma
+seccion hay opciones de distinto riesgo**. Configurar un umbral cambia lo que
+todo el sistema considera una anomalia; mirar las lecturas de un sensor no
+cambia nada.
+
+La tentacion era poner un `if nivel >= ...` adentro del menu. No: el criterio
+quedaria repartido y seria imposible auditarlo de un vistazo. En cambio los
+niveles y `opciones_para()` se mudaron a `cli/permisos.py`, y los submenus
+declaran sus opciones con la misma forma `(nivel minimo, etiqueta, accion)` y
+llaman **a la misma funcion**. Un solo mecanismo, en un solo lugar, en los dos
+niveles del menu.
+
+El resultado es una jerarquia que se puede mostrar en vivo:
+
+| Rol | Secciones | Incidentes | Monitoreo |
+|---|---|---|---|
+| ADMINISTRADOR (100) | 10 de 10 | 7 | 10 |
+| OPERADOR (60) | 8 de 10 | 7 | 9 (sin configurar umbrales) |
+| AUDITOR (30) | 3 de 10 | 5 (solo consultas) | 5 (solo consultas) |
+| CLIENTE (10) | 0 | — | — |
+
+**El rol AUDITOR dejo de ser un callejon sin salida.** Antes veia solo
+"Reportes". Ahora ve tambien incidentes y monitoreo en modo lectura, que es
+justo el material de una auditoria, y no ve nada que modifique datos. Las dos
+secciones nuevas entran con nivel de auditor **porque sus consultas son de
+auditoria**, y el filtro interno le saca las opciones de operacion.
+
+Hubo que corregir una contradiccion en el camino: las secciones estaban
+declaradas con nivel de operador mientras sus opciones internas decian nivel de
+auditor, asi que esas opciones eran inalcanzables. Las dos listas tienen que
+estar alineadas, y hay un test que compara lo que ve cada nivel en los dos
+menus.

@@ -12,6 +12,7 @@ from logistica.domain.alerta import (
     SeveridadAlerta,
     TipoAlerta,
 )
+from logistica.exceptions import NoEncontrado
 from logistica.infrastructure.mongo.conexion import traducir_errores
 from logistica.repositories.alerta_repository import AlertaRepository
 
@@ -78,6 +79,14 @@ class MongoAlertaRepository(AlertaRepository):
             {"_id": id_alerta}, {"$setOnInsert": doc}, upsert=True
         )
         return resultado.upserted_id is not None
+
+    @traducir_errores
+    def actualizar(self, alerta: Alerta) -> None:
+        resultado = self._coleccion.replace_one(
+            {"_id": alerta.id}, _a_documento(alerta)
+        )
+        if resultado.matched_count == 0:
+            raise NoEncontrado(f"No existe la alerta {alerta.id}")
 
     @traducir_errores
     def obtener(self, id: UUID) -> Alerta | None:

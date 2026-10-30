@@ -8,7 +8,13 @@ from uuid import uuid4
 import pytest
 from redis.exceptions import ConnectionError
 
-from logistica.cli import app, menu_usuarios
+from logistica.cli import app, menu_monitoreo, menu_usuarios
+from logistica.cli.permisos import (
+    NIVEL_ADMINISTRADOR,
+    NIVEL_AUDITOR,
+    NIVEL_OPERADOR,
+    opciones_para,
+)
 from logistica.domain.sesion import EstadoSesion, Sesion
 from logistica.exceptions import ErrorDePersistencia, ValidacionError
 from logistica.infrastructure.redis.sesion_repository import RedisSesionRepository
@@ -207,15 +213,36 @@ def test_si_redis_esta_caido_no_se_vuelve_a_pedir_la_clave(monkeypatch):
     assert contenedor.usuarios.autenticar.call_count == 1
 
 
-@pytest.mark.parametrize("nivel,visibles", [(100, 8), (60, 6), (30, 1), (10, 0)])
+@pytest.mark.parametrize("nivel,visibles", [(100, 10), (60, 8), (30, 3), (10, 0)])
 def test_el_menu_se_recorta_segun_el_nivel_del_rol(nivel, visibles):
-    assert len(app._opciones_para(nivel, app._secciones(MagicMock()))) == visibles
+    assert len(opciones_para(nivel, app._secciones(MagicMock(), nivel))) == visibles
 
 
 def test_las_opciones_visibles_se_renumeran_desde_uno():
-    """Si se filtraran sin renumerar, el menu mostraria 1, 3, 5."""
-    opciones = app._opciones_para(app.NIVEL_AUDITOR, app._secciones(MagicMock()))
-    assert list(opciones) == ["1"]
+    """Si se filtraran sin renumerar, el menu mostraria 1, 5, 8 en vez de 1, 2, 3."""
+    nivel = NIVEL_AUDITOR
+    opciones = opciones_para(nivel, app._secciones(MagicMock(), nivel))
+    assert list(opciones) == ["1", "2", "3"]
+
+
+def test_el_submenu_usa_el_mismo_filtro_que_el_principal(monkeypatch):
+    """Configurar un umbral cambia lo que todo el sistema considera anomalia:
+    es de administrador. El criterio no se duplica, se reusa (D42)."""
+    capturado = {}
+    monkeypatch.setattr(
+        menu_monitoreo.consola,
+        "menu",
+        lambda titulo, opciones: capturado.update(opciones),
+    )
+
+    menu_monitoreo.construir(MagicMock(), rol_nivel=NIVEL_OPERADOR)
+    etiquetas_operador = [e for e, _ in capturado.values()]
+    capturado.clear()
+    menu_monitoreo.construir(MagicMock(), rol_nivel=NIVEL_ADMINISTRADOR)
+    etiquetas_admin = [e for e, _ in capturado.values()]
+
+    assert "Configurar un umbral" not in etiquetas_operador
+    assert "Configurar un umbral" in etiquetas_admin
 
 
 # --- El menu de sesiones -----------------------------------------------------
