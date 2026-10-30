@@ -211,6 +211,14 @@ class Contenedor:
         return MongoAlertaRepository(self.base_mongo)
 
     @cached_property
+    def predicciones(self):
+        """Prediccion de atrasos: cruza envios y tramos de PostgreSQL con los
+        incidentes abiertos de MongoDB (D55)."""
+        from logistica.services.prediccion_service import PrediccionService
+
+        return PrediccionService(self.incidentes, self.unidad_de_trabajo)
+
+    @cached_property
     def solicitudes_reporte(self):
         from logistica.infrastructure.mongo.solicitud_reporte_repository import (
             MongoSolicitudReporteRepository,

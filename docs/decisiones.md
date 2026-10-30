@@ -2206,3 +2206,80 @@ entidad rechaza los que sobran: pedir un limite a un reporte que no lo usa es un
 error del **pedido**, no de la ejecucion, asi que se detecta al solicitar y no
 cuando ya se cobro. Hay un test que verifica que el catalogo cubre todos los
 tipos: uno sin especificacion reventaria al validar.
+
+---
+
+## D55 — La prediccion de atrasos es un puntaje explicable, no un modelo entrenado
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `PrediccionService`, PostgreSQL, MongoDB, menu "Prediccion de atrasos y riesgos"
+
+El enunciado pide "**Prediccion de atrasos**" y "**Creacion de reportes de
+analisis predictivos (atrasos y riesgos)**".
+
+**No se uso machine learning, y es la decision principal de esta pieza.** Con
+seis envios de prueba un modelo no tendria de donde aprender, y sobre todo no se
+podria explicar: ante "por que este envio es de riesgo ALTO" la unica respuesta
+seria "porque lo dijo el modelo". Un sistema de logistica que no puede explicar
+una alerta no sirve para operar.
+
+Lo que hay es un **puntaje por factores observables**. Cada senal suma puntos y
+queda registrada con su motivo en palabras, asi que la prediccion viene con su
+propia explicacion y el menu puede mostrar, envio por envio, por que esta donde
+esta. Un operador la puede discutir; eso es lo que se puede defender.
+
+### Los factores, y de donde sale cada uno
+
+| Factor | Puntos | Base |
+|---|---|---|
+| Tramos que **ya llegaron tarde** | 2 por tramo | PostgreSQL (`tramo.fecha_llegada_real`) |
+| Tramos **vencidos sin llegada** | 3 por tramo | PostgreSQL |
+| **Incidentes abiertos** del envio | 2 cada uno | MongoDB |
+| Incidentes de severidad **ALTA o CRITICA** | +3 cada uno | MongoDB |
+| La **llegada estimada vencio** y falta recorrido | 4 | PostgreSQL (D7) |
+| **Recorrido completo sin entrega registrada** | 3 | PostgreSQL |
+| El envio **no tiene tramos** | 2 | PostgreSQL |
+
+Los cortes de nivel son redondos —MEDIO 1, ALTO 4, CRITICO 8— **a proposito**:
+no hay nada que los calibre con seis envios, asi que inventar decimales seria
+fingir una precision que no existe. Son constantes nombradas para que el
+criterio se discuta en un solo lugar.
+
+### El puntaje mide riesgo; el atraso proyectado mide tiempo
+
+Son dos numeros distintos y no se mezclan. `atraso_acumulado` **no sale del
+puntaje**: sale del atraso que el envio ya se comio en sus tramos, que no es una
+estimacion sino un hecho. La fecha proyectada es la estimada corrida por ese
+atraso. Derivar dias a partir de puntos daria un numero inventado con cara de
+dato.
+
+### Dos factores que parecian uno
+
+La primera version marcaba "la llegada estimada vencio" cada vez que la fecha
+habia pasado. Un test mostro el caso donde eso miente: un envio cuyos tramos
+**ya llegaron todos** y sigue EN_TRANSITO. Ahi la fecha vencida no explica nada
+—el envio llego— y lo que falta es registrar la entrega. Son dos problemas
+distintos y ahora son dos factores distintos, con mensajes distintos.
+
+### Una consulta a MongoDB para todos los envios
+
+`listar_abiertos()` ya trae el `envio_id` de cada incidente, asi que se agrupan
+en memoria en vez de preguntar por cada envio. Con los envios en curso que puede
+haber, una consulta por envio seria un N+1 evitable.
+
+### Lo que la prediccion NO hace
+
+- **No mira el historico de la ruta.** Seria el factor mas interesante —"los
+  envios a Rotterdam llegan en promedio dos dias tarde"— pero con dos envios
+  entregados en los datos de prueba el promedio no significaria nada. Queda
+  anotado como lo primero que agregaria con datos reales.
+- **No corrige la fecha estimada en la base.** La proyeccion se calcula al
+  consultar y no se guarda: es una opinion del sistema, no un dato del envio, y
+  guardarla obligaria a recalcularla cada vez que cambia un tramo (mismo
+  criterio que D7 con la llegada estimada).
+
+### Se devuelven todos los envios, tambien los de riesgo BAJO
+
+Saber que un envio no tiene senales de atraso es tan util como saber que las
+tiene. Filtrar en el servicio obligaria a adivinar que umbral quiere quien
+consulta; el menu ofrece la vista completa y la de "los que necesitan atencion"
+por separado.

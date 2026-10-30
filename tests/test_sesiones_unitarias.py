@@ -232,7 +232,7 @@ def test_si_redis_esta_caido_no_se_vuelve_a_pedir_la_clave(monkeypatch):
     assert contenedor.usuarios.autenticar.call_count == 1
 
 
-@pytest.mark.parametrize("nivel,visibles", [(100, 14), (60, 12), (30, 7), (10, 0)])
+@pytest.mark.parametrize("nivel,visibles", [(100, 15), (60, 13), (30, 8), (10, 0)])
 def test_el_menu_se_recorta_segun_el_nivel_del_rol(nivel, visibles):
     assert len(opciones_para(nivel, app._secciones(MagicMock(), nivel))) == visibles
 
@@ -241,7 +241,7 @@ def test_las_opciones_visibles_se_renumeran_desde_uno():
     """Si se filtraran sin renumerar, el menu mostraria 1, 5, 8 en vez de 1, 2, 3."""
     nivel = NIVEL_AUDITOR
     opciones = opciones_para(nivel, app._secciones(MagicMock(), nivel))
-    assert list(opciones) == ["1", "2", "3", "4", "5", "6", "7"]
+    assert list(opciones) == ["1", "2", "3", "4", "5", "6", "7", "8"]
 
 
 def test_el_submenu_usa_el_mismo_filtro_que_el_principal(monkeypatch):
