@@ -17,7 +17,7 @@ from logistica.repositories.solicitud_reporte_repository import (
     SolicitudReporteRepository,
 )
 
-COLECCION = "solicitudes_reporte"
+COLECCION = "reportes"
 
 
 def _a_documento(solicitud: SolicitudReporte) -> dict[str, Any]:
@@ -25,6 +25,7 @@ def _a_documento(solicitud: SolicitudReporte) -> dict[str, Any]:
     return {
         "_id": solicitud.id,
         "tipo": solicitud.tipo.value,
+        "usuario_id": solicitud.usuario_id,
         "titular_tipo": solicitud.titular_tipo.value,
         "titular_id": solicitud.titular_id,
         "fecha_solicitud": solicitud.fecha_solicitud,
@@ -43,6 +44,7 @@ def _a_solicitud(doc: dict[str, Any]) -> SolicitudReporte:
     return SolicitudReporte(
         id=doc["_id"],
         tipo=TipoReporte(doc["tipo"]),
+        usuario_id=doc["usuario_id"],
         titular_tipo=TitularTipo(doc["titular_tipo"]),
         titular_id=doc["titular_id"],
         fecha_solicitud=doc["fecha_solicitud"],

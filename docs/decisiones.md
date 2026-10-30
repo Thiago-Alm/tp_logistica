@@ -2403,3 +2403,57 @@ En un sistema real entraria por un correo o una API. Aca hay una opcion de menu
 para registrarlo, que es lo que permite mostrar el ida y vuelta completo en la
 defensa: abrir el hilo, recibir, ver la bandeja de pendientes, responder y
 marcar como leido.
+
+---
+
+## D58 — Un solo modelo por concepto: la coleccion `reportes` se unifico
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `scripts/mongo/mongo_modelo.js`, `SolicitudReporte`
+
+El modelo fisico de MongoDB tenia disenada una coleccion `reportes` desde la
+semana del modelado. Al implementar la solicitud de reportes (D54) se creo una
+coleccion nueva, `solicitudes_reporte`, sin mirar el modelo: quedaron **dos
+disenos del mismo concepto** en el mismo proyecto, uno escrito y otro en uso.
+
+Se unificaron en `reportes`, que es la que estaba documentada.
+
+**Que se tomo de cada uno.** El esquema original no podia facturar —no tenia
+costo ni titular, y `usuario_id` no es titular de ninguna cuenta corriente—
+asi que no cumplia el requisito del enunciado, que pide reportes **facturables**.
+Se conservo su nombre, su argumento (parametros de forma libre segun el tipo) y
+su `usuario_id`, y se le sumo lo que faltaba para facturar.
+
+**Y de ahi salio algo mejor que cualquiera de los dos por separado:** `usuario_id`
+y el titular son **cosas distintas**. Quien **pide** el reporte es un usuario
+interno; a quien se le **factura** es la parte. Un operador de la empresa puede
+pedir un reporte para facturarselo a un cliente. La cuenta corriente necesita al
+titular (D41) y la auditoria necesita al usuario. Los dos se guardan.
+
+**Lo que se dejo afuera:** el campo `formato` (PDF/CSV/XLSX). El sistema no
+exporta a archivos —el resultado se muestra en pantalla— y declarar un campo que
+nadie escribe seria prometer algo que no hace.
+
+**Los estados se cambiaron** de SOLICITADO/GENERANDO/COMPLETADO/ERROR a
+SOLICITADA/GENERADA/FACTURADA/CANCELADA, porque el ciclo que importa es el del
+**pedido y su cobro**, no el de un archivo generandose.
+
+### Dos colecciones mas que se sacaron
+
+Buscando este solapamiento aparecieron otras dos declaradas y **vacias**:
+
+- **`grupos_trabajo`**: era parte del chat entre usuarios que D57 reemplazo por
+  la mensajeria con las partes. Sin ese chat, no hay grupos que agrupar.
+- **`predicciones_riesgo`**: guardaba una prediccion por envio y por dia. D55
+  decide **no persistir** la prediccion, por la misma razon que la fecha de
+  llegada estimada no se guarda en `envio` (D7): es un valor derivado, y
+  guardarlo obligaria a recalcularlo cada vez que cambia un tramo o aparece un
+  incidente. Ademas su esquema pedia probabilidades de 0 a 1 y un campo
+  `modelo`, que suponen un entrenamiento que el sistema no hace a proposito.
+
+**Una coleccion que nadie escribe es una promesa que el sistema no cumple.** Las
+dos se sacaron del modelo, con el motivo escrito ahi mismo para que se vea que
+fue una decision y no un olvido.
+
+El modelo fisico declara ahora exactamente las colecciones que el sistema usa:
+`incidentes`, `alertas`, `conversaciones`, `mensajes` y `reportes` —mas
+`umbrales`, que tiene su propio script—.

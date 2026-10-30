@@ -1,5 +1,8 @@
 """Solicitud de un reporte parametrizado y facturable. Vive en MongoDB.
 
+La coleccion es `reportes`, la que ya estaba disenada en
+`scripts/mongo/mongo_modelo.js` (D58).
+
 Por que MongoDB y no una tabla: **los parametros cambian segun el reporte**. El
 de envios por pais lleva un rango de fechas, el ranking de clientes lleva ademas
 un limite, y el de costos por tipo de transporte no lleva ninguno. En PostgreSQL
@@ -131,8 +134,17 @@ _TRANSICIONES: dict[EstadoSolicitud, set[EstadoSolicitud]] = {
 
 @dataclass
 class SolicitudReporte:
+    """Quien lo **pide** y a quien se le **factura** son dos cosas distintas.
+
+    `usuario_id` es el usuario interno que cargo el pedido; el titular es la
+    parte que lo paga. Un operador de la empresa puede pedir un reporte para
+    facturarselo a un cliente, y la cuenta corriente necesita al titular
+    mientras que la auditoria necesita al usuario.
+    """
+
     id: UUID
     tipo: TipoReporte
+    usuario_id: UUID
     titular_tipo: TitularTipo
     titular_id: UUID
     fecha_solicitud: datetime

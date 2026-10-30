@@ -65,6 +65,7 @@ class SolicitudReporteService:
     def solicitar(
         self,
         tipo: TipoReporte,
+        usuario_id: UUID,
         titular_tipo: TitularTipo,
         titular_id: UUID,
         parametros: dict[str, Any] | None = None,
@@ -79,13 +80,14 @@ class SolicitudReporteService:
         solicitud = SolicitudReporte(
             id=uuid4(),
             tipo=tipo,
+            usuario_id=usuario_id,
             titular_tipo=titular_tipo,
             titular_id=titular_id,
             fecha_solicitud=datetime.now(timezone.utc),
             costo=especificacion.precio,
             parametros=parametros or {},
         )
-        self._verificar_titular(titular_tipo, titular_id)
+        self._verificar(usuario_id, titular_tipo, titular_id)
         self._solicitudes.guardar(solicitud)
         log.info(
             "Reporte %s solicitado por %s %s (%s)",
@@ -93,10 +95,15 @@ class SolicitudReporteService:
         )
         return solicitud
 
-    def _verificar_titular(self, titular_tipo: TitularTipo, titular_id: UUID) -> None:
-        """El titular vive en PostgreSQL y la solicitud en MongoDB: no hay clave
-        foranea que lo garantice, asi que lo valida el servicio (D3, D41)."""
+    def _verificar(
+        self, usuario_id: UUID, titular_tipo: TitularTipo, titular_id: UUID
+    ) -> None:
+        """El usuario y el titular viven en PostgreSQL y la solicitud en
+        MongoDB: no hay clave foranea que lo garantice, asi que lo valida el
+        servicio (D3, D41)."""
         with self._uow as uow:
+            if uow.usuarios.obtener(usuario_id) is None:
+                raise NoEncontrado(f"No existe el usuario {usuario_id}")
             repositorio = {
                 TitularTipo.CLIENTE: uow.clientes,
                 TitularTipo.PROVEEDOR: uow.proveedores,

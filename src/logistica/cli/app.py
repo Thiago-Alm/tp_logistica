@@ -216,6 +216,7 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
                 contenedor.clientes,
                 contenedor.proveedores_service,
                 contenedor.operadores_service,
+                contenedor.usuarios,
                 rol_nivel=nivel,
             ),
         ),

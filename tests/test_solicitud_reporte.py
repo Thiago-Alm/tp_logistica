@@ -25,6 +25,7 @@ def nueva_solicitud(**cambios) -> SolicitudReporte:
     datos = dict(
         id=uuid4(),
         tipo=TipoReporte.ENVIOS_POR_PAIS,
+        usuario_id=uuid4(),
         titular_tipo=TitularTipo.CLIENTE,
         titular_id=uuid4(),
         fecha_solicitud=AHORA,
@@ -121,7 +122,7 @@ def test_solicitar_congela_el_precio_y_no_calcula_nada():
     factura lo que se cotizo hoy."""
     servicio, repositorio, _ = armar()
     solicitud = servicio.solicitar(
-        TipoReporte.COSTOS_POR_TRANSPORTE, TitularTipo.CLIENTE, uuid4()
+        TipoReporte.COSTOS_POR_TRANSPORTE, uuid4(), TitularTipo.CLIENTE, uuid4()
     )
     assert solicitud.costo == PRECIO_ANALITICO
     assert solicitud.estado is EstadoSolicitud.SOLICITADA
@@ -143,8 +144,29 @@ def test_el_titular_tiene_que_existir_en_postgres(titular, atributo):
     servicio, repositorio, uow = armar()
     getattr(uow, atributo).obtener.return_value = None
     with pytest.raises(NoEncontrado):
-        servicio.solicitar(TipoReporte.ENVIOS_POR_PAIS, titular, uuid4())
+        servicio.solicitar(TipoReporte.ENVIOS_POR_PAIS, uuid4(), titular, uuid4())
     repositorio.guardar.assert_not_called()
+
+
+def test_el_usuario_que_lo_pide_tiene_que_existir():
+    """Quien lo pide y a quien se le factura son distintos, y los dos viven en
+    PostgreSQL mientras la solicitud vive en MongoDB (D58)."""
+    servicio, repositorio, uow = armar()
+    uow.usuarios.obtener.return_value = None
+    with pytest.raises(NoEncontrado):
+        servicio.solicitar(
+            TipoReporte.ENVIOS_POR_PAIS, uuid4(), TitularTipo.CLIENTE, uuid4()
+        )
+    repositorio.guardar.assert_not_called()
+
+
+def test_el_pedido_guarda_quien_lo_pidio():
+    servicio, _, _ = armar()
+    usuario_id = uuid4()
+    solicitud = servicio.solicitar(
+        TipoReporte.ENVIOS_POR_PAIS, usuario_id, TitularTipo.CLIENTE, uuid4()
+    )
+    assert solicitud.usuario_id == usuario_id
 
 
 # --- Generar -----------------------------------------------------------------

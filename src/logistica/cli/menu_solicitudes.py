@@ -64,6 +64,7 @@ def construir(
     clientes,
     proveedores,
     operadores,
+    usuarios,
     rol_nivel: int = NIVEL_ADMINISTRADOR,
 ) -> None:
     partes_por_tipo = {
@@ -117,6 +118,19 @@ def construir(
         if parte is None:
             return
 
+        # Quien lo pide y a quien se le factura son distintos (D58).
+        try:
+            activos = usuarios.listar(solo_activos=True)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        if not activos:
+            consola.error("No hay usuarios activos.")
+            return
+        usuario = _elegir_de(activos, "Usuario que lo pide", lambda u: u.nombre_completo)
+        if usuario is None:
+            return
+
         parametros: dict = {}
         if especificacion.acepta_rango:
             for clave, etiqueta in (("desde", "Desde"), ("hasta", "Hasta")):
@@ -141,7 +155,7 @@ def construir(
 
         try:
             solicitud = servicio.solicitar(
-                tipo, tipo_titular, parte.id, parametros
+                tipo, usuario.id, tipo_titular, parte.id, parametros
             )
         except LogisticaError as error:
             consola.error(str(error))
