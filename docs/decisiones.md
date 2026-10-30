@@ -2327,3 +2327,79 @@ mismo punto del timeline.
 
 **La semilla de MongoDB no necesito el cambio:** sus incidentes se cargan con
 fechas cercanas al momento de la carga.
+
+---
+
+## D57 — Mensajeria con las partes: los mensajes van referenciados, no embebidos
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `mensajeria`, MongoDB, menu "Mensajeria con las partes"
+
+El enunciado pide "**Servicio de Mensajeria con las partes (Cliente -
+Proveedores - Operadores Logisticos)**".
+
+### Referenciados, no embebidos, y por que es al reves que en un incidente
+
+Una conversacion y sus mensajes viven en **dos colecciones**: `conversaciones` y
+`mensajes`, con cada mensaje apuntando a su hilo por `conversacion_id`.
+
+Es la decision contraria a la de D12, donde el `historial_estados` de un
+incidente va **embebido**, y la diferencia esta en como crece cada cosa:
+
+| | Historial de un incidente | Mensajes de un hilo |
+|---|---|---|
+| Cuantos | unos pocos cambios de estado | **sin limite** |
+| Como se lee | siempre junto al incidente | el hilo completo, o de a partes |
+| Riesgo de embeber | ninguno | pasar los **16 MB** por documento |
+
+Esa decision ya estaba tomada y escrita en `scripts/mongo/mongo_modelo.js`
+desde la semana del modelo fisico, y se respeto. La primera version de esta
+pieza los habia embebido; el validador de la coleccion la rechazo, que es
+exactamente para lo que esta.
+
+Por eso `Conversacion` **no carga sus mensajes**, igual que `Envio` no carga sus
+tramos (D6): cuando una consulta necesita las dos cosas, el servicio las compone
+en `ConversacionConMensajes`.
+
+### El validador se cambio, y vale explicar por que
+
+El esquema original modelaba un chat **entre usuarios** (`participantes`, con
+tipos PRIVADA y GRUPAL). Eso no cubre lo que pide el enunciado: **proveedores y
+operadores no tienen usuarios en el modelo**, asi que nunca podrian participar.
+
+Ahora una conversacion es un hilo entre la empresa y **una parte**, identificada
+igual que en la cuenta corriente: `parte_tipo` + `parte_id` (D41). Lo que se
+conservo es la decision estructural —referenciar y no embeber—, que era la
+parte que valia.
+
+### `sin_leer` y `actividad` se guardan, aunque sean derivables
+
+Las dos se podrian calcular leyendo los mensajes del hilo. Se guardan en la
+conversacion porque **son por donde se ordena y se filtra el listado**: con los
+mensajes en otra coleccion, derivarlas obligaria a leer todos los mensajes de
+todas las conversaciones en cada listado.
+
+Es la misma denormalizacion deliberada que el saldo de una cuenta corriente
+(D41), y con el mismo cuidado: `marcar_leidos()` actualiza **los mensajes en la
+base** con un `update_many` y recien despues pone el contador en cero, en vez de
+traer el hilo entero para cambiar un booleano.
+
+**Solo cuentan como pendientes los mensajes de la parte.** Los que escribio la
+empresa ya los leyo quien los escribio, y marcarlos no significaria nada.
+
+### Las dos escrituras no comparten transaccion, y se eligio el orden
+
+Escribir un mensaje son dos operaciones: insertar en `mensajes` y actualizar el
+hilo. MongoDB las haria en una transaccion solo con replica set, que este
+despliegue de un nodo no tiene.
+
+Se acepta la ventana **y se eligio que se escribe primero**: el mensaje. Si
+fallara la segunda escritura, quedaria el mensaje guardado y el contador corto.
+Al reves se perderia el mensaje. El contador se puede recalcular; un mensaje no.
+Hay un test que verifica ese orden.
+
+### El mensaje entrante se carga a mano
+
+En un sistema real entraria por un correo o una API. Aca hay una opcion de menu
+para registrarlo, que es lo que permite mostrar el ida y vuelta completo en la
+defensa: abrir el hilo, recibir, ver la bandeja de pendientes, responder y
+marcar como leido.

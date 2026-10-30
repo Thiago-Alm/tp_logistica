@@ -109,42 +109,52 @@ db.alertas.createIndex({ sensor_id: 1, fecha: -1 });
 db.alertas.createIndex({ envio_id: 1, fecha: -1 });
 
 // ---------------------------------------------------------------------
-// 3) conversaciones + 4) mensajes (chat privado y grupal)
-//  conversaciones: una por par de usuarios (privado) o por grupo (grupal).
-//  mensajes: referencian la conversacion por id (referencing, porque crecen sin limite;
-//  embeberlos pasaria el limite de 16 MB por documento).
-//  Restriccion: un solo chat privado por par de usuarios (indice unico parcial sobre
-//  clave_participantes = ids ordenados y unidos por ":").
+// 3) conversaciones + 4) mensajes (mensajeria con las partes)
+//  El enunciado pide "Servicio de Mensajeria con las partes (Cliente -
+//  Proveedores - Operadores Logisticos)", asi que una conversacion es un hilo
+//  entre la empresa y UNA parte, identificada como en la cuenta corriente:
+//  parte_tipo + parte_id (D41). El modelo anterior era un chat entre usuarios
+//  (PRIVADA/GRUPAL), que no cubria a proveedores ni operadores porque no
+//  tienen usuarios en el modelo.
+//  Se conserva la decision estructural original: los mensajes REFERENCIAN la
+//  conversacion en vez de ir embebidos, porque crecen sin limite y embeberlos
+//  pasaria el limite de 16 MB por documento.
+//  envio_id opcional: el hilo puede ser sobre un envio puntual o general.
 // ---------------------------------------------------------------------
 crearColeccion("conversaciones", {
   bsonType: "object",
-  required: ["_id", "tipo", "participantes", "creada_en"],
+  required: ["_id", "parte_tipo", "parte_id", "asunto", "estado", "creada_en"],
   properties: {
     _id: { bsonType: "binData" },
-    tipo: { enum: ["PRIVADA", "GRUPAL"] },
-    participantes: { bsonType: "array", minItems: 2, items: { bsonType: "binData" } },
-    grupo_id: { bsonType: ["binData", "null"] },
-    clave_participantes: { bsonType: "string" },
+    parte_tipo: { enum: ["CLIENTE", "PROVEEDOR", "OPERADOR"] },
+    parte_id: { bsonType: "binData" },
+    asunto: { bsonType: "string", minLength: 1 },
+    envio_id: { bsonType: ["binData", "null"] },
+    estado: { enum: ["ABIERTA", "CERRADA"] },
     creada_en: { bsonType: "date" },
-    ultimo_mensaje: { bsonType: "object", properties: { fecha: { bsonType: "date" }, resumen: { bsonType: "string" } } }
+    actividad: { bsonType: "date" },
+    sin_leer: { bsonType: "int", minimum: 0 }
   }
 });
-db.conversaciones.createIndex({ participantes: 1, "ultimo_mensaje.fecha": -1 });   // multiclave: "mis conversaciones"
-db.conversaciones.createIndex({ clave_participantes: 1 }, { unique: true, partialFilterExpression: { tipo: "PRIVADA" } });
+db.conversaciones.createIndex({ actividad: -1 });                      // listado por actividad reciente
+db.conversaciones.createIndex({ parte_id: 1, actividad: -1 });         // "los hilos de este cliente"
+db.conversaciones.createIndex({ envio_id: 1 });                        // "los hilos de este envio"
+db.conversaciones.createIndex({ sin_leer: 1 });                        // bandeja de pendientes
 
 crearColeccion("mensajes", {
   bsonType: "object",
-  required: ["_id", "conversacion_id", "remitente_id", "contenido", "fecha"],
+  required: ["_id", "conversacion_id", "autor", "cuerpo", "fecha"],
   properties: {
     _id: { bsonType: "binData" },
     conversacion_id: { bsonType: "binData" },
-    remitente_id: { bsonType: "binData" },
-    contenido: { bsonType: "string", minLength: 1 },
+    autor: { enum: ["INTERNO", "PARTE"] },
+    autor_id: { bsonType: ["binData", "null"] },   // el usuario, cuando es INTERNO
+    cuerpo: { bsonType: "string", minLength: 1, maxLength: 2000 },
     fecha: { bsonType: "date" },
-    leido_por: { bsonType: "array", items: { bsonType: "binData" } }
+    leido: { bsonType: "bool" }
   }
 });
-db.mensajes.createIndex({ conversacion_id: 1, fecha: -1 });          // historial paginado de una conversacion
+db.mensajes.createIndex({ conversacion_id: 1, fecha: 1 });   // el hilo, como se escribio
 
 // ---------------------------------------------------------------------
 // 5) grupos_trabajo (integrantes embebidos: pocos y se leen siempre con el grupo)

@@ -211,6 +211,22 @@ class Contenedor:
         return MongoAlertaRepository(self.base_mongo)
 
     @cached_property
+    def conversaciones(self):
+        from logistica.infrastructure.mongo.conversacion_repository import (
+            MongoConversacionRepository,
+        )
+
+        return MongoConversacionRepository(self.base_mongo)
+
+    @cached_property
+    def mensajeria(self):
+        """Mensajeria con las partes. Las conversaciones viven en MongoDB y
+        quienes conversan en PostgreSQL (D57)."""
+        from logistica.services.mensajeria_service import MensajeriaService
+
+        return MensajeriaService(self.conversaciones, self.unidad_de_trabajo)
+
+    @cached_property
     def predicciones(self):
         """Prediccion de atrasos: cruza envios y tramos de PostgreSQL con los
         incidentes abiertos de MongoDB (D55)."""

@@ -19,6 +19,7 @@ from logistica.cli import (
     menu_gps,
     menu_grafo,
     menu_incidentes,
+    menu_mensajeria,
     menu_monitoreo,
     menu_partes,
     menu_prediccion,
@@ -188,6 +189,18 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
         # material de auditoria; adentro, cada opcion declara su propio nivel y
         # las filtra el mismo `opciones_para`. Un auditor ve las de lectura, un
         # operador agrega las de operacion y un administrador la configuracion.
+        (
+            NIVEL_AUDITOR,
+            "Mensajeria con las partes",
+            lambda: menu_mensajeria.construir(
+                contenedor.mensajeria,
+                contenedor.clientes,
+                contenedor.proveedores_service,
+                contenedor.operadores_service,
+                contenedor.usuarios,
+                rol_nivel=nivel,
+            ),
+        ),
         (
             NIVEL_AUDITOR,
             "Prediccion de atrasos y riesgos",
