@@ -1,7 +1,7 @@
 """ABM de usuarios, roles y sensores: lo que faltaba de cada uno."""
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -268,3 +268,66 @@ def test_eliminar_un_umbral_normaliza_el_tipo():
     umbrales.eliminar.return_value = True
     servicio.eliminar_umbral("  reefer_40  ", MagnitudUmbral.TEMPERATURA)
     umbrales.eliminar.assert_called_once_with("REEFER_40", MagnitudUmbral.TEMPERATURA)
+
+
+# --- Busqueda en el menu de usuarios -----------------------------------------
+
+
+def _menu_usuarios(monkeypatch, usuarios_listados, entrada, opcion):
+    """Ejecuta una opcion del menu de usuarios con una entrada dada."""
+    from logistica.cli import menu_usuarios
+
+    servicio = MagicMock()
+    servicio.listar.return_value = usuarios_listados
+    servicio.listar_roles.return_value = []
+    error = MagicMock()
+    monkeypatch.setattr(menu_usuarios.consola, "pedir", lambda _: entrada)
+    monkeypatch.setattr(menu_usuarios.consola, "error", error)
+    monkeypatch.setattr(menu_usuarios.consola, "confirmar", lambda _: True)
+    monkeypatch.setattr(menu_usuarios.consola, "titulo", lambda *_: None)
+    monkeypatch.setattr(menu_usuarios.consola, "aviso", lambda *_: None)
+    monkeypatch.setattr(menu_usuarios.consola, "exito", lambda *_: None)
+    monkeypatch.setattr(menu_usuarios.consola, "tabla", lambda *_: None)
+    monkeypatch.setattr(
+        menu_usuarios.consola, "menu", lambda titulo, opciones: opciones[opcion][1]()
+    )
+    menu_usuarios.construir(servicio, MagicMock(), MagicMock())
+    return servicio, error
+
+
+def test_una_entrada_vacia_no_da_de_baja_a_nadie(monkeypatch):
+    """Regresion: `"" in str(id)` es verdadero para todos, asi que la busqueda
+    se quedaba con el primero y apretar Enter daba de baja a un usuario
+    cualquiera. Lo encontro una pasada completa de la aplicacion."""
+    servicio, error = _menu_usuarios(
+        monkeypatch, [nuevo_usuario(), nuevo_usuario()], "", "4"
+    )
+    servicio.baja.assert_not_called()
+    error.assert_called_once()
+
+
+def test_un_fragmento_ambiguo_no_elige_uno(monkeypatch):
+    """Los ids de la semilla comparten prefijo: un fragmento corto coincide con
+    varios y elegir el primero seria elegir al azar."""
+    comun = "aaaaaaaa"
+    servicio, error = _menu_usuarios(
+        monkeypatch,
+        [
+            nuevo_usuario(id=UUID(f"{comun}-0000-4000-8000-000000000001")),
+            nuevo_usuario(id=UUID(f"{comun}-0000-4000-8000-000000000002")),
+        ],
+        comun,
+        "4",
+    )
+    servicio.baja.assert_not_called()
+    assert "coinciden" in error.call_args[0][0]
+
+
+def test_el_email_completo_identifica_sin_ambiguedad(monkeypatch):
+    buscado = nuevo_usuario(email="lucia@logistica.com")
+    otro = nuevo_usuario(email="carlos@logistica.com")
+    servicio, error = _menu_usuarios(
+        monkeypatch, [otro, buscado], "LUCIA@logistica.com", "4"
+    )
+    servicio.baja.assert_called_once_with(buscado.id)
+    error.assert_not_called()

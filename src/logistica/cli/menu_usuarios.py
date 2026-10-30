@@ -139,12 +139,34 @@ def construir(
         else:
             consola.aviso("La sesion no existe o ya vencio.")
 
+    def _buscar_usuario(etiqueta: str = "ID o email del usuario"):
+        """Acepta el email completo o un fragmento del id.
+
+        Si el fragmento coincide con varios **no elige uno**: avisa y corta. Un
+        fragmento vacio coincide con todos, y quedarse con el primero
+        significaba dar de baja a un usuario cualquiera por apretar Enter.
+        """
+        texto = consola.pedir(etiqueta).strip().lower()
+        if not texto:
+            consola.error("Hace falta un ID o un email.")
+            return None
+        usuarios = servicio.listar()
+        por_email = [u for u in usuarios if texto == u.email.lower()]
+        coincidencias = por_email or [u for u in usuarios if texto in str(u.id).lower()]
+        if not coincidencias:
+            consola.error("No se encontro ese usuario.")
+            return None
+        if len(coincidencias) > 1:
+            consola.error(
+                f"Hay {len(coincidencias)} usuarios que coinciden. Se mas especifico."
+            )
+            return None
+        return coincidencias[0]
+
     def baja() -> None:
         consola.titulo("Baja de usuario")
-        texto = consola.pedir("ID del usuario (o un fragmento)").lower()
-        usuario = next((u for u in servicio.listar() if texto in str(u.id).lower()), None)
+        usuario = _buscar_usuario()
         if usuario is None:
-            consola.error("No se encontro ese usuario.")
             return
         if not consola.confirmar(f"Dar de baja a {usuario.nombre_completo}?"):
             consola.aviso("Cancelado.")
@@ -155,20 +177,6 @@ def construir(
             consola.error(str(e))
             return
         consola.exito("Usuario dado de baja.")
-
-    def _buscar_usuario(etiqueta: str = "ID del usuario (o un fragmento)"):
-        texto = consola.pedir(etiqueta).strip().lower()
-        if not texto:
-            consola.error("Hace falta un ID o un email.")
-            return None
-        usuarios = servicio.listar()
-        encontrado = next(
-            (u for u in usuarios if texto in str(u.id).lower() or texto == u.email.lower()),
-            None,
-        )
-        if encontrado is None:
-            consola.error("No se encontro ese usuario.")
-        return encontrado
 
     def modificar() -> None:
         consola.titulo("Modificar usuario")
