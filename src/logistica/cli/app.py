@@ -19,6 +19,7 @@ from logistica.cli import (
     menu_grafo,
     menu_incidentes,
     menu_monitoreo,
+    menu_partes,
     menu_reportes,
     menu_sincronizacion,
     menu_usuarios,
@@ -113,6 +114,23 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
             lambda: menu_clientes.construir(contenedor.clientes),
         ),
         (
+            NIVEL_AUDITOR,
+            "Proveedores",
+            lambda: menu_partes.construir(
+                contenedor.proveedores_service,
+                "Proveedores",
+                con_servicio=True,
+                rol_nivel=nivel,
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Operadores logisticos",
+            lambda: menu_partes.construir(
+                contenedor.operadores_service, "Operadores logisticos", rol_nivel=nivel
+            ),
+        ),
+        (
             NIVEL_ADMINISTRADOR,
             "Usuarios, roles y sesiones",
             lambda: menu_usuarios.construir(
@@ -133,7 +151,12 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
         (
             NIVEL_OPERADOR,
             "Facturacion y cuentas corrientes",
-            lambda: menu_facturacion.construir(contenedor.facturacion, contenedor.clientes),
+            lambda: menu_facturacion.construir(
+                contenedor.facturacion,
+                contenedor.clientes,
+                contenedor.proveedores_service,
+                contenedor.operadores_service,
+            ),
         ),
         (
             NIVEL_AUDITOR,

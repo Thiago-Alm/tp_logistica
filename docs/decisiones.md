@@ -1862,3 +1862,108 @@ declaradas con nivel de operador mientras sus opciones internas decian nivel de
 auditor, asi que esas opciones eran inalcanzables. Las dos listas tienen que
 estar alineadas, y hay un test que compara lo que ve cada nivel en los dos
 menus.
+
+---
+
+## D50 — Las detecciones periodicas tambien se disparan a mano
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `MonitoreoService`, menu "Monitoreo IoT y alertas"
+
+El control de estado de sensores (D43) y la deteccion de anomalias de
+temperatura funcionaban, pero **solo adentro de otro proceso**: el primero en el
+planificador cada 30 segundos, el segundo dentro del simulador IoT, a medida que
+escribe cada lectura. Las dos dejaban su resultado en el log.
+
+Para el criterio del enunciado —que cada punto este "presente y operativo, es
+decir que tiene datos para dar un resultado"— eso no alcanza: quien abre la
+aplicacion no las puede ejecutar ni ver su resultado. Ahora las dos tienen su
+opcion de menu, y el planificador las sigue corriendo igual. **Es el mismo
+servicio llamado desde dos lados**, no una copia.
+
+**`controlar_sensores()` resuelve el numero de serie.** La deteccion devuelve
+solo el UUID del sensor, porque trabaja con el heartbeat de Redis. El servicio
+lo cruza con PostgreSQL para mostrar el numero de serie, que es lo unico que le
+sirve a quien mira la pantalla. Un sensor que estuviera en Redis y no en
+PostgreSQL cae al UUID en vez de romper.
+
+**`detectar_anomalias()` reevalua las ultimas lecturas de cada sensor
+instalado.** Un sensor sin contenedor no tiene tipo contra el que comparar, asi
+que se saltea. Sirve para dos cosas:
+
+1. **Recuperar deteccion perdida.** Si los umbrales estaban mal configurados o
+   el proceso estuvo caido, se vuelve a pasar sobre las lecturas ya guardadas.
+2. **Mostrar la idempotencia en vivo.** Correrla dos veces seguidas informa cero
+   alertas nuevas la segunda vez, porque el id de una alerta es deterministico
+   (`Alerta.generar_id`, D33). Es la demostracion mas simple de que reintentar
+   no duplica.
+
+**Como se muestra que si detecta:** apretar un umbral desde el menu y volver a
+correr la deteccion. Con `DRY_40` llevado a `[19.0, 19.5]` aparecen 7 alertas
+nuevas sobre las mismas 80 lecturas, y la segunda corrida da 0. Es la forma de
+ver en una pantalla que la configuracion de umbrales manda sobre la deteccion.
+
+**Las dos detecciones se inyectan como opcionales.** El planificador arma las
+suyas por su cuenta, asi que `MonitoreoService` funciona sin ellas y avisa con
+`ValidacionError` si se le pide una que no tiene.
+
+---
+
+## D51 — Proveedores y operadores comparten entidad base, servicio y menu
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `domain/partes.py`, `parte_service`, `menu_partes`, facturacion
+
+Las tablas `proveedor` y `operador` tenian datos semilla desde la primera
+semana —tres de cada uno— y **la aplicacion no los mostraba**: no habia
+entidad, ni repositorio, ni servicio, ni menu. Eran dos puntos del enunciado en
+cero con los datos ya cargados.
+
+**Son dos tablas, no una.** El enunciado las pide por separado y cumplen roles
+distintos: el operador transporta la carga, el proveedor presta un servicio
+(estiba, bunkering, mantenimiento). Unificarlas obligaria a una columna
+discriminadora y a aceptar que un operador tenga `tipo_servicio`.
+
+**Pero tienen la misma forma**, asi que comparten:
+
+- **`ParteComercial`**, con CUIT, razon social, contacto, pais y baja logica.
+  `Proveedor` agrega `tipo_servicio`; `Operador` no agrega nada. Cada una
+  responde `titular_tipo` con el valor que le corresponde en su cuenta
+  corriente (D41).
+- **`ServicioDeParte`**, con alta, baja, modificacion, reactivacion y busqueda.
+  Cada subclase declara solo con que repositorio trabaja y como construye su
+  entidad. Repetir el servicio dos veces seria repetir tambien sus reglas, y
+  una se arreglaria sin la otra.
+- **`menu_partes`**, parametrizado: `con_servicio` agrega la columna y el campo
+  del proveedor.
+
+**Los repositorios si son dos contratos separados**, aunque tengan los mismos
+metodos: la Unidad de Trabajo expone `proveedores` y `operadores` por separado,
+y un servicio que recibe `OperadorRepository` no puede recibir proveedores por
+error.
+
+**`Cliente` queda aparte.** Lleva direccion, es el unico que origina envios y su
+alta **si** publica al Outbox, porque crea un nodo del grafo. Meterlo en la
+jerarquia obligaria a que la base conociera el Outbox.
+
+**Ni el alta de un proveedor ni la de un operador publican eventos.** El grafo
+proyecta clientes, envios, tramos y operadores a traves de los eventos de envio
+(D37): dar de alta un operador no cambia por si solo ninguna relacion. Cuando
+ese operador participe de un envio, el evento de ese envio lo proyecta.
+
+**`modificar()` revalida la entidad entera.** Un `setattr` se saltea
+`__post_init__`, asi que sin la revalidacion un email roto llegaria a la base.
+Como la excepcion sale antes del `commit`, la Unidad de Trabajo deshace todo
+(D28). El CUIT no se modifica: es la identidad fiscal y lo referencian las
+cuentas corrientes.
+
+### Lo que esto destraba en facturacion
+
+`menu_facturacion` elegia el cliente de una lista, pero para un proveedor o un
+operador pedia el **UUID tipeado a mano**, con un comentario que decia "todavia
+no tienen su propio CRUD". Ahora los tres se eligen por razon social, asi que
+facturarle a un operador es tan directo como facturarle a un cliente.
+
+La tabla de cuentas corrientes tambien muestra el nombre del titular en vez de
+los primeros ocho caracteres de su UUID. La cuenta guarda `titular_tipo` +
+`titular_id` y **no tiene clave foranea**, porque apunta a tres tablas distintas
+(D41): resolver el nombre es tarea de quien muestra, y ahora hay de donde
+sacarlo para los tres tipos.

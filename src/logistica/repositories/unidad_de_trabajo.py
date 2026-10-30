@@ -28,6 +28,10 @@ from logistica.repositories.facturacion_repository import (
     PagoRepository,
 )
 from logistica.repositories.outbox_repository import OutboxRepository
+from logistica.repositories.parte_repository import (
+    OperadorRepository,
+    ProveedorRepository,
+)
 from logistica.repositories.reporte_envio_repository import ReporteEnvioRepository
 from logistica.repositories.rol_repository import RolRepository
 from logistica.repositories.sensor_repository import SensorRepository
@@ -45,6 +49,8 @@ class UnidadDeTrabajo(ABC):
     contenedores: ContenedorRepository
     sensores: SensorRepository
     ubicaciones: UbicacionRepository
+    proveedores: ProveedorRepository
+    operadores: OperadorRepository
     reportes_envio: ReporteEnvioRepository
     outbox: OutboxRepository
     consistencia: ConsistenciaRepository

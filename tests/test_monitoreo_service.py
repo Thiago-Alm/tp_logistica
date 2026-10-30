@@ -267,3 +267,108 @@ def test_las_alertas_de_un_sensor_exigen_un_limite_positivo():
     with pytest.raises(ValidacionError):
         servicio.listar_alertas_de_sensor(uuid4(), limite=0)
     alertas.listar_por_sensor.assert_not_called()
+
+
+# --- Detecciones a pedido ----------------------------------------------------
+
+
+def test_el_control_de_sensores_resuelve_el_numero_de_serie():
+    """La deteccion devuelve solo el UUID: el numero de serie sale de
+    PostgreSQL y es lo unico que le sirve a quien mira la pantalla."""
+    from logistica.services.deteccion_inactividad_service import ResultadoInactividad
+
+    sensor = nuevo_sensor()
+    uow = MagicMock()
+    uow.__enter__.return_value = uow
+    uow.sensores.listar.return_value = [sensor]
+    inactividad = MagicMock()
+    inactividad.verificar.return_value = [
+        ResultadoInactividad(sensor.id, "INACTIVO", 300.0),
+        ResultadoInactividad(uuid4(), "SIN_DATOS", None),
+    ]
+    servicio = MonitoreoService(
+        MagicMock(), MagicMock(), MagicMock(), uow, deteccion_inactividad=inactividad
+    )
+
+    estados = servicio.controlar_sensores()
+    assert estados[0].numero_serie == sensor.numero_serie
+    # El que no esta en PostgreSQL cae al UUID en vez de romper.
+    assert estados[1].numero_serie == str(estados[1].sensor_id)
+    assert all(e.es_problema for e in estados)
+
+
+def test_un_sensor_que_reporta_a_tiempo_no_es_problema():
+    from logistica.services.deteccion_inactividad_service import ResultadoInactividad
+
+    sensor = nuevo_sensor()
+    uow = MagicMock()
+    uow.__enter__.return_value = uow
+    uow.sensores.listar.return_value = [sensor]
+    inactividad = MagicMock()
+    inactividad.verificar.return_value = [
+        ResultadoInactividad(sensor.id, "ACTIVO", 12.0)
+    ]
+    servicio = MonitoreoService(
+        MagicMock(), MagicMock(), MagicMock(), uow, deteccion_inactividad=inactividad
+    )
+    assert not servicio.controlar_sensores()[0].es_problema
+
+
+def test_la_deteccion_a_pedido_solo_evalua_sensores_instalados():
+    """Un sensor sin contenedor no tiene tipo contra el que comparar."""
+    instalado = nuevo_sensor()
+    suelto = nuevo_sensor(contenedor_id=None)
+    uow = MagicMock()
+    uow.__enter__.return_value = uow
+    uow.sensores.listar.return_value = [instalado, suelto]
+    lecturas = MagicMock()
+    lecturas.ultimas.return_value = [MagicMock()]
+    anomalias = MagicMock()
+    anomalias.evaluar.return_value = []
+
+    servicio = MonitoreoService(
+        lecturas, MagicMock(), MagicMock(), uow, deteccion_anomalias=anomalias
+    )
+    resumen = servicio.detectar_anomalias(lecturas_por_sensor=5)
+
+    assert resumen.sensores_evaluados == 1
+    lecturas.ultimas.assert_called_once_with(instalado.id, 5)
+
+
+def test_la_deteccion_a_pedido_informa_las_alertas_nuevas():
+    sensor = nuevo_sensor()
+    alerta = nueva_alerta()
+    uow = MagicMock()
+    uow.__enter__.return_value = uow
+    uow.sensores.listar.return_value = [sensor]
+    lecturas = MagicMock()
+    lecturas.ultimas.return_value = [MagicMock(), MagicMock()]
+    anomalias = MagicMock()
+    # La primera lectura genera alerta; la segunda ya la tenia (idempotencia).
+    anomalias.evaluar.side_effect = [[alerta], []]
+
+    servicio = MonitoreoService(
+        lecturas, MagicMock(), MagicMock(), uow, deteccion_anomalias=anomalias
+    )
+    resumen = servicio.detectar_anomalias()
+
+    assert resumen.lecturas_evaluadas == 2
+    assert resumen.cantidad_nuevas == 1
+    assert resumen.alertas_nuevas == (alerta,)
+
+
+def test_las_detecciones_avisan_si_no_estan_disponibles():
+    """Son opcionales porque el planificador las arma por su cuenta."""
+    servicio = MonitoreoService(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    with pytest.raises(ValidacionError):
+        servicio.controlar_sensores()
+    with pytest.raises(ValidacionError):
+        servicio.detectar_anomalias()
+
+
+def test_la_deteccion_a_pedido_exige_una_cantidad_positiva():
+    servicio = MonitoreoService(
+        MagicMock(), MagicMock(), MagicMock(), MagicMock(), deteccion_anomalias=MagicMock()
+    )
+    with pytest.raises(ValidacionError):
+        servicio.detectar_anomalias(lecturas_por_sensor=0)

@@ -211,6 +211,18 @@ class Contenedor:
         return MongoAlertaRepository(self.base_mongo)
 
     @cached_property
+    def proveedores_service(self):
+        from logistica.services.parte_service import ProveedorService
+
+        return ProveedorService(self.unidad_de_trabajo)
+
+    @cached_property
+    def operadores_service(self):
+        from logistica.services.parte_service import OperadorService
+
+        return OperadorService(self.unidad_de_trabajo)
+
+    @cached_property
     def incidentes_service(self):
         """Incidentes: viven en MongoDB, pero el snapshot del envio y el
         denominador de los promedios salen de PostgreSQL."""
@@ -229,6 +241,8 @@ class Contenedor:
             self.umbrales,
             self.alertas,
             self.unidad_de_trabajo,
+            deteccion_inactividad=self.deteccion_inactividad,
+            deteccion_anomalias=self.deteccion_anomalias,
         )
 
     @cached_property

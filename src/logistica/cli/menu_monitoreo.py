@@ -309,6 +309,64 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
             return
         consola.exito(f"La alerta quedo {alerta.estado.value}.")
 
+    def controlar_sensores() -> None:
+        consola.titulo("Control de estado de sensores")
+        consola.aviso(
+            "Un sensor esta INACTIVO cuando pasa su intervalo de reporte sin "
+            "senal. Lo mismo que corre cada 30 segundos en el planificador (D43)."
+        )
+        try:
+            estados = servicio.controlar_sensores()
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        if not estados:
+            consola.aviso("No hay sensores monitoreados.")
+            return
+        consola.tabla(
+            ["N. SERIE", "ESTADO", "SIN REPORTAR"],
+            [
+                [
+                    e.numero_serie,
+                    e.estado,
+                    f"{e.segundos_sin_reportar:.0f}s"
+                    if e.segundos_sin_reportar is not None
+                    else "-",
+                ]
+                for e in estados
+            ],
+        )
+        problemas = [e for e in estados if e.es_problema]
+        if problemas:
+            consola.error(f"{len(problemas)} sensor(es) sin reportar a tiempo.")
+        else:
+            consola.exito("Todos los sensores reportaron dentro de su intervalo.")
+
+    def detectar_anomalias() -> None:
+        consola.titulo("Detectar anomalias de temperatura")
+        consola.aviso(
+            "Compara las ultimas lecturas de cada sensor activo contra el umbral "
+            "de su tipo de contenedor y crea las alertas que falten."
+        )
+        try:
+            resumen = servicio.detectar_anomalias()
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.aviso(
+            f"{resumen.sensores_evaluados} sensores, "
+            f"{resumen.lecturas_evaluadas} lecturas evaluadas."
+        )
+        if not resumen.cantidad_nuevas:
+            consola.exito(
+                "Ninguna alerta nueva. Si ya corriste la deteccion antes, es lo "
+                "esperado: el id de una alerta es deterministico, asi que "
+                "reevaluar las mismas lecturas no la duplica (D33)."
+            )
+            return
+        consola.exito(f"{resumen.cantidad_nuevas} alerta(s) nueva(s).")
+        _mostrar_alertas(list(resumen.alertas_nuevas))
+
     # Configurar un umbral cambia lo que TODO el sistema considera una anomalia,
     # asi que es de administrador. Consultar y reconocer alertas es del dia a
     # dia del operador, y mirar lecturas alcanza al auditor.
@@ -318,7 +376,9 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
         (NIVEL_AUDITOR, "Consulta historica de lecturas", historico),
         (NIVEL_AUDITOR, "Ultimas lecturas de un sensor", ultimas),
         (NIVEL_AUDITOR, "Umbrales configurados", listar_umbrales),
+        (NIVEL_OPERADOR, "Control de estado de sensores", controlar_sensores),
         (NIVEL_OPERADOR, "Cobertura de umbrales", cobertura),
+        (NIVEL_OPERADOR, "Detectar anomalias de temperatura", detectar_anomalias),
         (NIVEL_ADMINISTRADOR, "Configurar un umbral", configurar_umbral),
         (NIVEL_OPERADOR, "Alertas abiertas", alertas_abiertas),
         (NIVEL_OPERADOR, "Alertas de un sensor", alertas_de_sensor),

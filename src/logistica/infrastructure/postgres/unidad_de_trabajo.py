@@ -18,6 +18,10 @@ from logistica.infrastructure.postgres.facturacion_repository import (
     PostgresPagoRepository,
 )
 from logistica.infrastructure.postgres.outbox_repository import PostgresOutboxRepository
+from logistica.infrastructure.postgres.parte_repository import (
+    PostgresOperadorRepository,
+    PostgresProveedorRepository,
+)
 from logistica.infrastructure.postgres.reporte_envio_repository import (
     PostgresReporteEnvioRepository,
 )
@@ -52,6 +56,8 @@ class UnidadDeTrabajoPostgres(UnidadDeTrabajo):
         self.contenedores = PostgresContenedorRepository(self._conexion)
         self.sensores = PostgresSensorRepository(self._conexion)
         self.ubicaciones = PostgresUbicacionRepository(self._conexion)
+        self.proveedores = PostgresProveedorRepository(self._conexion)
+        self.operadores = PostgresOperadorRepository(self._conexion)
         self.reportes_envio = PostgresReporteEnvioRepository(self._conexion)
         self.outbox = PostgresOutboxRepository(self._conexion)
         self.consistencia = PostgresConsistenciaRepository(self._conexion)

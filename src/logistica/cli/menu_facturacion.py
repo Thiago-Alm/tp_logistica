@@ -7,6 +7,7 @@ from logistica.domain.facturacion import MedioPago, TitularTipo
 from logistica.exceptions import LogisticaError
 from logistica.services.cliente_service import ClienteService
 from logistica.services.facturacion_service import FacturacionService
+from logistica.services.parte_service import ServicioDeParte
 
 
 def _elegir(opciones: list, etiqueta, titulo: str):
@@ -26,31 +27,62 @@ def _pedir_decimal(etiqueta: str) -> Decimal | None:
         return None
 
 
-def construir(servicio: FacturacionService, clientes: ClienteService) -> None:
+def construir(
+    servicio: FacturacionService,
+    clientes: ClienteService,
+    proveedores: ServicioDeParte,
+    operadores: ServicioDeParte,
+) -> None:
+    partes_por_tipo = {
+        TitularTipo.CLIENTE: clientes,
+        TitularTipo.PROVEEDOR: proveedores,
+        TitularTipo.OPERADOR: operadores,
+    }
+
+    def _nombres() -> dict:
+        """Razon social de cada titular, de los tres tipos.
+
+        La cuenta corriente guarda `titular_tipo` + `titular_id` y no tiene
+        clave foranea, porque apunta a tres tablas distintas (D41): resolver
+        el nombre es tarea de quien muestra.
+        """
+        nombres = {}
+        for servicio_parte in partes_por_tipo.values():
+            for parte in servicio_parte.listar():
+                nombres[parte.id] = parte.razon_social
+        return nombres
+
     def _elegir_titular() -> tuple[TitularTipo, UUID] | None:
-        """Para clientes se elige de la lista; para operadores y proveedores se
-        pide el id, porque todavia no tienen su propio CRUD."""
+        """Los tres tipos se eligen de una lista por razon social.
+
+        Antes solo el cliente: operadores y proveedores pedian el UUID a mano
+        porque no tenian su propio ABM. Ahora lo tienen, asi que facturarle a un
+        operador es tan directo como facturarle a un cliente.
+        """
         tipo = _elegir(list(TitularTipo), lambda t: t.value, "Tipo de titular")
         if tipo is None:
             return None
-        if tipo is TitularTipo.CLIENTE:
-            cliente = _elegir(clientes.listar(), lambda c: c.razon_social, "Cliente")
-            return (tipo, cliente.id) if cliente else None
         try:
-            return tipo, UUID(consola.pedir(f"ID del {tipo.value.lower()}"))
-        except ValueError:
-            consola.error("ID invalido.")
+            partes = partes_por_tipo[tipo].listar()
+        except LogisticaError as error:
+            consola.error(str(error))
             return None
+        if not partes:
+            consola.error(f"No hay {tipo.value.lower()}es cargados.")
+            return None
+        parte = _elegir(partes, lambda x: x.razon_social, tipo.value.capitalize())
+        return (tipo, parte.id) if parte else None
 
     def listar_cuentas() -> None:
         consola.titulo("Cuentas corrientes")
         consola.aviso("El saldo es negativo cuando el titular debe.")
+        nombres = _nombres()
         consola.tabla(
-            ["TITULAR", "ID", "SALDO", "DEUDA", "LIMITE", "DISPONIBLE"],
+            ["TIPO", "TITULAR", "SALDO", "DEUDA", "LIMITE", "DISPONIBLE"],
             [
                 [
                     c.titular_tipo.value,
-                    str(c.titular_id)[:8],
+                    nombres.get(c.titular_id, str(c.titular_id)[:8]),
                     f"{c.saldo:.2f}",
                     f"{c.deuda:.2f}",
                     f"{c.limite_credito:.2f}",

@@ -56,6 +56,34 @@ class CoberturaUmbrales:
         return not self.magnitudes_faltantes
 
 
+@dataclass(frozen=True)
+class EstadoDeSensor:
+    """Un sensor y cuanto hace que no reporta, con su numero de serie ya
+    resuelto: el resultado crudo de la deteccion solo trae el UUID."""
+
+    numero_serie: str
+    sensor_id: UUID
+    estado: str
+    segundos_sin_reportar: float | None
+
+    @property
+    def es_problema(self) -> bool:
+        return self.estado != "ACTIVO"
+
+
+@dataclass(frozen=True)
+class ResumenDeteccion:
+    """Lo que dejo una corrida manual de la deteccion de anomalias."""
+
+    sensores_evaluados: int
+    lecturas_evaluadas: int
+    alertas_nuevas: tuple[Alerta, ...]
+
+    @property
+    def cantidad_nuevas(self) -> int:
+        return len(self.alertas_nuevas)
+
+
 class MonitoreoService:
     def __init__(
         self,
@@ -63,11 +91,18 @@ class MonitoreoService:
         umbrales: UmbralRepository,
         alertas: AlertaRepository,
         unidad_de_trabajo: UnidadDeTrabajo,
+        deteccion_inactividad=None,
+        deteccion_anomalias=None,
     ) -> None:
         self._lecturas = lecturas
         self._umbrales = umbrales
         self._alertas = alertas
         self._uow = unidad_de_trabajo
+        # Las dos detecciones son opcionales porque hasta ahora solo corrian en
+        # el planificador, que las arma por su cuenta. Se inyectan para que
+        # tambien se puedan disparar a mano desde el menu.
+        self._inactividad = deteccion_inactividad
+        self._anomalias = deteccion_anomalias
 
     # -- Sensores (PostgreSQL) -----------------------------------------------
 
@@ -223,3 +258,60 @@ class MonitoreoService:
         alerta.estado = destino
         self._alertas.actualizar(alerta)
         return alerta
+
+    # -- Detecciones a pedido -------------------------------------------------
+
+    def controlar_sensores(self) -> list[EstadoDeSensor]:
+        """Control de estado de sensores: cuales dejaron de reportar.
+
+        Es la misma deteccion que corre cada 30 segundos en el planificador
+        (D43), disponible a pedido. El planificador la deja en el log; aca se
+        devuelve para mostrarla, con el numero de serie resuelto desde
+        PostgreSQL porque el resultado crudo solo trae el UUID.
+        """
+        if self._inactividad is None:
+            raise ValidacionError("La deteccion de inactividad no esta disponible")
+
+        series = {s.id: s.numero_serie for s in self.listar_sensores()}
+        return [
+            EstadoDeSensor(
+                numero_serie=series.get(r.sensor_id, str(r.sensor_id)),
+                sensor_id=r.sensor_id,
+                estado=r.estado,
+                segundos_sin_reportar=r.segundos_sin_reportar,
+            )
+            for r in self._inactividad.verificar()
+        ]
+
+    def detectar_anomalias(
+        self, lecturas_por_sensor: int = LIMITE_ULTIMAS_POR_DEFECTO
+    ) -> ResumenDeteccion:
+        """Evalua las ultimas lecturas de cada sensor activo contra su umbral.
+
+        Correrla dos veces seguidas no duplica alertas: el id de una alerta es
+        deterministico (`Alerta.generar_id`), asi que la segunda corrida informa
+        cero nuevas. Es la forma mas simple de mostrar en vivo que la
+        idempotencia funciona (D33).
+        """
+        if self._anomalias is None:
+            raise ValidacionError("La deteccion de anomalias no esta disponible")
+        if lecturas_por_sensor <= 0:
+            raise ValidacionError("La cantidad de lecturas tiene que ser positiva")
+
+        sensores = [s for s in self.listar_sensores(solo_activos=True) if s.esta_instalado()]
+        nuevas: list[Alerta] = []
+        evaluadas = 0
+        for sensor in sensores:
+            for lectura in self._lecturas.ultimas(sensor.id, lecturas_por_sensor):
+                evaluadas += 1
+                nuevas.extend(self._anomalias.evaluar(lectura))
+
+        log.info(
+            "Deteccion a pedido: %s sensores, %s lecturas, %s alertas nuevas",
+            len(sensores), evaluadas, len(nuevas),
+        )
+        return ResumenDeteccion(
+            sensores_evaluados=len(sensores),
+            lecturas_evaluadas=evaluadas,
+            alertas_nuevas=tuple(nuevas),
+        )
