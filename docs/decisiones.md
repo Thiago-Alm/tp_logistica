@@ -2283,3 +2283,47 @@ Saber que un envio no tiene senales de atraso es tan util como saber que las
 tiene. Filtrar en el servicio obligaria a adivinar que umbral quiere quien
 consulta; el menu ofrece la vista completa y la de "los que necesitan atencion"
 por separado.
+
+---
+
+## D56 — Las fechas de la semilla son relativas, no literales
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `scripts/postgres/02_datos_prueba.sql`
+
+El timeline de los datos de prueba estaba pensado para un "hoy" concreto: el
+envio 5 todavia sin salir, el 3 llegando en tres semanas, el 2 recien demorado
+y el 4 demorado a proposito desde hacia tres semanas. Con fechas **literales**,
+ese "hoy" era alrededor del 10/02/2026.
+
+Ocho meses despues, **los cuatro envios en curso figuraban entre 239 y 265 dias
+tarde**. Las consecuencias no eran cosmeticas:
+
+- "Envios demorados" devolvia **todos** los envios en curso, asi que dejaba de
+  distinguir nada;
+- la prediccion de atrasos (D55) marcaba todo ALTO o CRITICO por el mismo
+  motivo trivial, que es justo lo que un reporte de riesgos no tiene que hacer;
+- cualquier reporte con rango de fechas por defecto se veia vacio o raro.
+
+Y **empeoraba cada dia**: no era un error que estuviera ahi o no, era uno que
+crecia solo.
+
+**Ahora cada fecha se escribe como `CURRENT_TIMESTAMP ± INTERVAL`.** Las
+distancias entre fechas se conservan exactas —se calcularon contra el ancla
+original, 10/02/2026— y lo unico que se mueve es el punto de partida, que pasa
+a ser el dia en que se cargan los datos. El timeline vuelve a ser el que se
+diseno, cargue cuando se cargue.
+
+| Envio | Estado | Llegada estimada |
+|---|---|---|
+| 1 | ENTREGADO | hace 10 dias |
+| 2 | EN_TRANSITO | hace 2 dias (recien demorado) |
+| 3 | EN_PUERTO | en 19 dias |
+| 4 | EN_TRANSITO | hace 20 dias (demorado a proposito) |
+| 5 | CREADO | en 24 dias |
+
+El test de integracion que verificaba el envio demorado tambien dejo de usar
+una fecha fija: ahora consulta con la hora real, porque "hoy" siempre cae en el
+mismo punto del timeline.
+
+**La semilla de MongoDB no necesito el cambio:** sus incidentes se cargan con
+fechas cercanas al momento de la carga.
