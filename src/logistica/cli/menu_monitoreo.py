@@ -12,6 +12,7 @@ from logistica.cli.permisos import (
 )
 from logistica.domain.alerta import Alerta, EstadoAlerta
 from logistica.domain.lectura import Lectura
+from logistica.domain.sensor import EstadoSensor, TipoSensor
 from logistica.domain.umbral import MagnitudUmbral, Umbral
 from logistica.exceptions import LogisticaError
 from logistica.services.monitoreo_service import MonitoreoService
@@ -309,6 +310,175 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
             return
         consola.exito(f"La alerta quedo {alerta.estado.value}.")
 
+    def alta_sensor() -> None:
+        consola.titulo("Alta de sensor")
+        numero_serie = consola.pedir("Numero de serie (SN-IOT-2026-007)")
+        modelo = consola.pedir("Modelo")
+        tipos = list(TipoSensor)
+        consola.aviso("Tipo: " + ", ".join(f"{i}={x.value}" for i, x in enumerate(tipos, 1)))
+        texto = consola.pedir("Tipo").strip()
+        if texto.isdigit() and 1 <= int(texto) <= len(tipos):
+            tipo = tipos[int(texto) - 1]
+        else:
+            try:
+                tipo = TipoSensor(texto.upper())
+            except ValueError:
+                consola.error("Tipo invalido.")
+                return
+        try:
+            intervalo = int(consola.pedir("Cada cuantos segundos reporta"))
+        except ValueError:
+            consola.error("El intervalo tiene que ser un numero entero.")
+            return
+        try:
+            sensor = servicio.alta_sensor(numero_serie, modelo, tipo, intervalo)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.exito(f"Sensor {sensor.numero_serie} dado de alta, sin instalar.")
+        consola.aviso("Instalalo en un contenedor con la opcion correspondiente.")
+
+    def modificar_sensor() -> None:
+        consola.titulo("Modificar sensor")
+        consola.aviso(
+            "El numero de serie y el tipo no se modifican: identifican al "
+            "equipo fisico."
+        )
+        try:
+            sensor = servicio.buscar_sensor(consola.pedir("Sensor"))
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.aviso(
+            f"{sensor.numero_serie}: {sensor.modelo}, cada "
+            f"{sensor.intervalo_reporte_segundos}s. Enter deja igual."
+        )
+        modelo = consola.pedir(f"Modelo [{sensor.modelo}]").strip() or None
+        texto = consola.pedir(f"Intervalo [{sensor.intervalo_reporte_segundos}]").strip()
+        intervalo = None
+        if texto:
+            try:
+                intervalo = int(texto)
+            except ValueError:
+                consola.error("El intervalo tiene que ser un numero entero.")
+                return
+        try:
+            actualizado = servicio.modificar_sensor(
+                sensor.id, modelo=modelo, intervalo_reporte_segundos=intervalo
+            )
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.exito(
+            f"{actualizado.numero_serie}: {actualizado.modelo}, cada "
+            f"{actualizado.intervalo_reporte_segundos}s."
+        )
+
+    def instalar_sensor() -> None:
+        consola.titulo("Instalar un sensor en un contenedor")
+        try:
+            sensor = servicio.buscar_sensor(consola.pedir("Sensor"))
+            texto = consola.pedir("ID del contenedor").strip()
+            instalado = servicio.instalar_sensor(sensor.id, UUID(texto))
+        except ValueError:
+            consola.error("El ID del contenedor no es valido.")
+            return
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.exito(
+            f"{instalado.numero_serie} instalado en {str(instalado.contenedor_id)[-12:]}."
+        )
+
+    def desinstalar_sensor() -> None:
+        consola.titulo("Desinstalar un sensor")
+        consola.aviso(
+            "Sus lecturas no se borran: cada una guarda el contenedor en el que "
+            "estaba cuando reporto, asi que el historico sigue siendo cierto."
+        )
+        try:
+            sensor = servicio.buscar_sensor(consola.pedir("Sensor"))
+            servicio.desinstalar_sensor(sensor.id)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.exito(f"{sensor.numero_serie} quedo sin instalar.")
+
+    def cambiar_estado_sensor() -> None:
+        consola.titulo("Cambiar el estado de un sensor")
+        consola.aviso(
+            "Solo los ACTIVO se esperan reportando: pasar uno a INACTIVO o "
+            "EN_MANTENIMIENTO lo saca del control de inactividad (D43)."
+        )
+        try:
+            sensor = servicio.buscar_sensor(consola.pedir("Sensor"))
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        estados = list(EstadoSensor)
+        consola.aviso(
+            "Nuevo estado: " + ", ".join(f"{i}={e.value}" for i, e in enumerate(estados, 1))
+        )
+        texto = consola.pedir("Nuevo estado").strip()
+        if texto.isdigit() and 1 <= int(texto) <= len(estados):
+            nuevo = estados[int(texto) - 1]
+        else:
+            try:
+                nuevo = EstadoSensor(texto.upper())
+            except ValueError:
+                consola.error("Estado invalido.")
+                return
+        try:
+            actualizado = servicio.cambiar_estado_sensor(sensor.id, nuevo)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.exito(f"{actualizado.numero_serie} quedo {actualizado.estado.value}.")
+
+    def eliminar_umbral() -> None:
+        consola.titulo("Eliminar un umbral")
+        consola.aviso(
+            "Las alertas ya creadas quedan: cada una guarda el limite que se "
+            "violo. Lo que cambia es que esa magnitud deja de evaluarse."
+        )
+        try:
+            umbrales = servicio.listar_umbrales()
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        if not umbrales:
+            consola.aviso("No hay umbrales configurados.")
+            return
+        consola.tabla(
+            ["#", "TIPO CONTENEDOR", "MAGNITUD", "RANGO"],
+            [
+                [
+                    str(i),
+                    u.tipo_contenedor,
+                    u.magnitud.value,
+                    f"[{u.minimo:.1f}, {u.maximo:.1f}] {u.unidad}",
+                ]
+                for i, u in enumerate(umbrales, 1)
+            ],
+        )
+        eleccion = consola.pedir("Numero del umbral").strip()
+        if not eleccion.isdigit() or not 1 <= int(eleccion) <= len(umbrales):
+            consola.error("Umbral invalido.")
+            return
+        umbral = umbrales[int(eleccion) - 1]
+        if not consola.confirmar(
+            f"Eliminar el umbral de {umbral.magnitud.value} para "
+            f"{umbral.tipo_contenedor}?"
+        ):
+            consola.aviso("Cancelado.")
+            return
+        try:
+            servicio.eliminar_umbral(umbral.tipo_contenedor, umbral.magnitud)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        consola.exito("Umbral eliminado.")
+
     def controlar_sensores() -> None:
         consola.titulo("Control de estado de sensores")
         consola.aviso(
@@ -373,6 +543,11 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
     secciones = [
         (NIVEL_AUDITOR, "Listar sensores", listar_sensores),
         (NIVEL_AUDITOR, "Sensores de un contenedor", sensores_de_contenedor),
+        (NIVEL_ADMINISTRADOR, "Alta de sensor", alta_sensor),
+        (NIVEL_ADMINISTRADOR, "Modificar sensor", modificar_sensor),
+        (NIVEL_ADMINISTRADOR, "Instalar sensor en un contenedor", instalar_sensor),
+        (NIVEL_ADMINISTRADOR, "Desinstalar un sensor", desinstalar_sensor),
+        (NIVEL_ADMINISTRADOR, "Cambiar el estado de un sensor", cambiar_estado_sensor),
         (NIVEL_AUDITOR, "Consulta historica de lecturas", historico),
         (NIVEL_AUDITOR, "Ultimas lecturas de un sensor", ultimas),
         (NIVEL_AUDITOR, "Umbrales configurados", listar_umbrales),
@@ -380,6 +555,7 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
         (NIVEL_OPERADOR, "Cobertura de umbrales", cobertura),
         (NIVEL_OPERADOR, "Detectar anomalias de temperatura", detectar_anomalias),
         (NIVEL_ADMINISTRADOR, "Configurar un umbral", configurar_umbral),
+        (NIVEL_ADMINISTRADOR, "Eliminar un umbral", eliminar_umbral),
         (NIVEL_OPERADOR, "Alertas abiertas", alertas_abiertas),
         (NIVEL_OPERADOR, "Alertas de un sensor", alertas_de_sensor),
         (NIVEL_OPERADOR, "Reconocer o cerrar una alerta", cambiar_estado_alerta),

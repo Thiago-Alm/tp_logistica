@@ -61,6 +61,9 @@ class UmbralesEnMemoria(UmbralRepository):
     def obtener(self, tipo_contenedor, magnitud) -> Umbral | None:
         return self._umbral if tipo_contenedor == self._umbral.tipo_contenedor else None
 
+    def eliminar(self, tipo_contenedor, magnitud) -> bool:
+        return False
+
     def listar(self) -> list[Umbral]:
         return [self._umbral]
 

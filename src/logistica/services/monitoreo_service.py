@@ -13,14 +13,14 @@ persistencia poliglota:
 """
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
 from logistica.domain.alerta import Alerta, EstadoAlerta
 from logistica.domain.lectura import Lectura
-from logistica.domain.sensor import EstadoSensor, Sensor
+from logistica.domain.sensor import EstadoSensor, Sensor, TipoSensor
 from logistica.domain.umbral import MagnitudUmbral, Umbral
-from logistica.exceptions import NoEncontrado, ValidacionError
+from logistica.exceptions import ConflictoDeDatos, NoEncontrado, ValidacionError
 from logistica.repositories.alerta_repository import AlertaRepository
 from logistica.repositories.lectura_repository import (
     MAX_DIAS_POR_CONSULTA,
@@ -132,6 +132,115 @@ class MonitoreoService:
             raise NoEncontrado(f"No existe un sensor con ID o numero de serie {texto!r}")
         return sensor
 
+    def alta_sensor(
+        self,
+        numero_serie: str,
+        modelo: str,
+        tipo: TipoSensor,
+        intervalo_reporte_segundos: int,
+        contenedor_id: UUID | None = None,
+    ) -> Sensor:
+        """Da de alta un sensor. `contenedor_id` es opcional: un sensor en
+        stock todavia no esta instalado en ningun contenedor."""
+        sensor = Sensor(
+            id=uuid4(),
+            numero_serie=numero_serie.strip().upper(),
+            modelo=modelo.strip(),
+            tipo=tipo,
+            intervalo_reporte_segundos=intervalo_reporte_segundos,
+            fecha_instalacion=datetime.now(timezone.utc),
+            contenedor_id=contenedor_id,
+        )
+        with self._uow as uow:
+            if uow.sensores.obtener_por_numero_serie(sensor.numero_serie) is not None:
+                raise ConflictoDeDatos(
+                    f"Ya existe un sensor con numero de serie {sensor.numero_serie}"
+                )
+            if contenedor_id is not None and uow.contenedores.obtener(contenedor_id) is None:
+                raise NoEncontrado(f"No existe el contenedor {contenedor_id}")
+            uow.sensores.guardar(sensor)
+            uow.commit()
+        log.info("Sensor dado de alta: %s (%s)", sensor.numero_serie, sensor.id)
+        return sensor
+
+    def modificar_sensor(
+        self,
+        id: UUID,
+        modelo: str | None = None,
+        intervalo_reporte_segundos: int | None = None,
+    ) -> Sensor:
+        """El numero de serie no se modifica: identifica el equipo fisico y es
+        por donde se lo busca. El tipo tampoco: un sensor de temperatura no se
+        convierte en uno de GPS."""
+        with self._uow as uow:
+            sensor = uow.sensores.obtener(id)
+            if sensor is None:
+                raise NoEncontrado(f"No existe el sensor {id}")
+            if modelo is not None:
+                sensor.modelo = modelo.strip()
+            if intervalo_reporte_segundos is not None:
+                sensor.intervalo_reporte_segundos = intervalo_reporte_segundos
+            # Un setattr se saltea __post_init__: hay que revalidar entero.
+            sensor.validar()
+            uow.sensores.actualizar(sensor)
+            uow.commit()
+        return sensor
+
+    def instalar_sensor(self, id: UUID, contenedor_id: UUID) -> Sensor:
+        """Instala un sensor en un contenedor. Es el ABM de sensores DE UN
+        CONTENEDOR: la relacion la lleva el sensor, porque un contenedor puede
+        tener varios y un sensor esta en uno solo."""
+        with self._uow as uow:
+            sensor = uow.sensores.obtener(id)
+            if sensor is None:
+                raise NoEncontrado(f"No existe el sensor {id}")
+            if uow.contenedores.obtener(contenedor_id) is None:
+                raise NoEncontrado(f"No existe el contenedor {contenedor_id}")
+            if sensor.esta_instalado() and sensor.contenedor_id != contenedor_id:
+                raise ConflictoDeDatos(
+                    f"El sensor {sensor.numero_serie} ya esta instalado en otro "
+                    "contenedor: desinstalalo primero"
+                )
+            sensor.contenedor_id = contenedor_id
+            sensor.fecha_instalacion = datetime.now(timezone.utc)
+            uow.sensores.actualizar(sensor)
+            uow.commit()
+        return sensor
+
+    def desinstalar_sensor(self, id: UUID) -> Sensor:
+        """Saca el sensor del contenedor y lo deja en stock.
+
+        Sus lecturas en Cassandra NO se borran: quedan asociadas al contenedor
+        en el que estaba cuando reporto, porque cada lectura guarda el
+        `contenedor_id` del momento (D20). El historico sigue siendo cierto.
+        """
+        with self._uow as uow:
+            sensor = uow.sensores.obtener(id)
+            if sensor is None:
+                raise NoEncontrado(f"No existe el sensor {id}")
+            if not sensor.esta_instalado():
+                raise ValidacionError(
+                    f"El sensor {sensor.numero_serie} no esta instalado"
+                )
+            sensor.contenedor_id = None
+            uow.sensores.actualizar(sensor)
+            uow.commit()
+        return sensor
+
+    def cambiar_estado_sensor(self, id: UUID, nuevo: EstadoSensor) -> Sensor:
+        """Solo los ACTIVO se esperan reportando: pasar uno a INACTIVO o
+        EN_MANTENIMIENTO lo saca del control de inactividad (D43), en vez de
+        que figure como un problema todas las veces."""
+        with self._uow as uow:
+            sensor = uow.sensores.obtener(id)
+            if sensor is None:
+                raise NoEncontrado(f"No existe el sensor {id}")
+            sensor.estado = nuevo
+            uow.sensores.actualizar(sensor)
+            uow.commit()
+        log.info("Sensor %s paso a %s", sensor.numero_serie, nuevo.value)
+        return sensor
+
     # -- Lecturas (Cassandra) -------------------------------------------------
 
     def historico(
@@ -184,6 +293,23 @@ class MonitoreoService:
             umbral.minimo,
             umbral.maximo,
             umbral.unidad,
+        )
+
+    def eliminar_umbral(self, tipo_contenedor: str, magnitud: MagnitudUmbral) -> None:
+        """Borra el umbral de una combinacion.
+
+        Las alertas ya creadas no se tocan: cada una guarda en su detalle el
+        limite que se violo, asi que siguen siendo legibles sin el umbral. Lo
+        que si cambia es que esa magnitud deja de evaluarse, y la cobertura lo
+        va a marcar como faltante.
+        """
+        if not self._umbrales.eliminar(tipo_contenedor.strip().upper(), magnitud):
+            raise NoEncontrado(
+                f"No hay umbral de {magnitud.value} para {tipo_contenedor}"
+            )
+        log.warning(
+            "Umbral de %s para %s eliminado: esa magnitud deja de evaluarse",
+            magnitud.value, tipo_contenedor,
         )
 
     def cobertura_de_umbrales(self) -> list[CoberturaUmbrales]:

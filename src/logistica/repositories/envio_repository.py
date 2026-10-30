@@ -49,6 +49,17 @@ class EnvioRepository(ABC):
         ...
 
     @abstractmethod
+    def desasociar_contenedor(self, envio_id: UUID, contenedor_id: UUID) -> bool:
+        """Saca un contenedor del envio. Devuelve si estaba asignado.
+
+        Borra la fila de envio_contenedor en vez de marcarla: la tabla registra
+        que contenedores componen el envio, no un historial de asignaciones, y
+        una fila "desasignada" haria que listar_contenedores tuviera que
+        filtrar en todas las consultas.
+        """
+        ...
+
+    @abstractmethod
     def listar_contenedores(self, envio_id: UUID) -> list[UUID]:
         """Ids de los contenedores asignados a un envio."""
         ...

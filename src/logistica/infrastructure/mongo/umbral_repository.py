@@ -54,6 +54,13 @@ class MongoUmbralRepository(UmbralRepository):
         return _a_umbral(doc) if doc else None
 
     @traducir_errores
+    def eliminar(self, tipo_contenedor: str, magnitud: MagnitudUmbral) -> bool:
+        resultado = self._coleccion.delete_one(
+            {"tipo_contenedor": tipo_contenedor, "magnitud": magnitud.value}
+        )
+        return resultado.deleted_count > 0
+
+    @traducir_errores
     def listar(self) -> list[Umbral]:
         docs = self._coleccion.find().sort([("tipo_contenedor", 1), ("magnitud", 1)])
         return [_a_umbral(d) for d in docs]

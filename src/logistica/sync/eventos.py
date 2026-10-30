@@ -127,6 +127,21 @@ def contenedor_asignado(
     )
 
 
+
+def contenedor_desasignado(
+    envio_id: UUID, contenedor_id: UUID, momento: datetime
+) -> EventoOutbox:
+    """Mismo agregado y mismo payload que la asignacion: lo que cambia es que
+    el proyector borra la relacion en vez de crearla."""
+    return nuevo_evento(
+        TipoAgregado.ENVIO,
+        envio_id,
+        TipoEvento.CONTENEDOR_DESASIGNADO,
+        _limpiar({"envio_id": envio_id, "contenedor_id": contenedor_id}),
+        momento,
+    )
+
+
 # --- Tramo -----------------------------------------------------------------
 
 
@@ -150,6 +165,30 @@ def tramo_creado(tramo: Tramo, momento: datetime) -> EventoOutbox:
 
 
 # --- Contenedor ------------------------------------------------------------
+
+
+def _evento_de_contenedor(
+    contenedor: Contenedor, tipo: TipoEvento, momento: datetime
+) -> EventoOutbox:
+    return nuevo_evento(
+        TipoAgregado.CONTENEDOR,
+        contenedor.id,
+        tipo,
+        _limpiar({
+            "id": contenedor.id,
+            "codigo_iso": contenedor.codigo_iso,
+            "tipo": contenedor.tipo,
+            "estado": contenedor.estado.value,
+        }),
+        momento,
+    )
+
+
+def contenedor_actualizado(contenedor: Contenedor, momento: datetime) -> EventoOutbox:
+    """Mismo payload que el alta: el proyector hace MERGE + SET, asi que la
+    proyeccion es la misma. Lo que cambia es que el evento no miente sobre que
+    paso, y eso importa cuando se lee el Outbox para entender un problema."""
+    return _evento_de_contenedor(contenedor, TipoEvento.ACTUALIZADO, momento)
 
 
 def contenedor_creado(contenedor: Contenedor, momento: datetime) -> EventoOutbox:

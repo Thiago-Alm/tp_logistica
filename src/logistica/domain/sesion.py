@@ -6,6 +6,7 @@ cuando vence el TTL. Por eso no es una tabla.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from math import ceil
 from uuid import UUID
 
 from logistica.exceptions import ValidacionError
@@ -50,5 +51,12 @@ class Sesion:
         return self.estado is EstadoSesion.ACTIVA and ahora < self.fecha_fin
 
     def segundos_restantes(self, ahora: datetime) -> int:
-        """Cuanto le queda de vida. Nunca negativo: una sesion vencida da 0."""
-        return max(0, int((self.fecha_fin - ahora).total_seconds()))
+        """Cuanto le queda de vida, redondeando HACIA ARRIBA. Nunca negativo:
+        una sesion vencida da 0.
+
+        Se redondea hacia arriba porque este numero es el TTL que se le pasa a
+        Redis: truncar mataria la sesion antes de su `fecha_fin`, y a una de un
+        segundo le daria TTL 0 apenas el reloj avanza un microsegundo, con lo
+        cual `guardar` la rechazaria por vencida.
+        """
+        return max(0, ceil((self.fecha_fin - ahora).total_seconds()))

@@ -26,6 +26,9 @@ class UmbralesEnMemoria(UmbralRepository):
         self.consultas += 1
         return self._por_clave.get((tipo_contenedor, magnitud))
 
+    def eliminar(self, tipo_contenedor: str, magnitud: MagnitudUmbral) -> bool:
+        return self._por_clave.pop((tipo_contenedor, magnitud), None) is not None
+
     def listar(self) -> list[Umbral]:
         return list(self._por_clave.values())
 

@@ -13,6 +13,7 @@ from getpass import getpass
 from logistica.cli import (
     consola,
     menu_clientes,
+    menu_contenedores,
     menu_envios,
     menu_facturacion,
     menu_gps,
@@ -115,6 +116,13 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
         ),
         (
             NIVEL_AUDITOR,
+            "Contenedores",
+            lambda: menu_contenedores.construir(
+                contenedor.contenedores_service, rol_nivel=nivel
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
             "Proveedores",
             lambda: menu_partes.construir(
                 contenedor.proveedores_service,
@@ -146,6 +154,7 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
                 contenedor.envios,
                 contenedor.clientes,
                 contenedor.trazabilidad,
+                contenedor.contenedores_service,
             ),
         ),
         (

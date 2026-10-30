@@ -8,6 +8,7 @@ from logistica.domain.evento_logistico import TipoEventoLogistico
 from logistica.domain.tramo import MedioTransporte
 from logistica.exceptions import LogisticaError
 from logistica.services.cliente_service import ClienteService
+from logistica.services.contenedor_service import ContenedorService
 from logistica.services.envio_service import EnvioService
 from logistica.services.evento_logistico_service import EventoLogisticoService
 
@@ -59,6 +60,7 @@ def construir(
     servicio: EnvioService,
     clientes: ClienteService,
     trazabilidad: EventoLogisticoService,
+    contenedores: ContenedorService,
 ) -> None:
     def registrar() -> None:
         consola.titulo("Registrar envio")
@@ -187,20 +189,60 @@ def construir(
             return
         consola.exito(f"Envio en estado {nuevo.value}.")
 
-    def asignar_contenedor() -> None:
-        consola.titulo("Asignar contenedor")
+    def _mostrar_contenedores(envio_id) -> None:
+        contenedores = servicio.listar_contenedores(envio_id)
+        if not contenedores:
+            consola.aviso("El envio no tiene contenedores asignados.")
+            return
+        consola.tabla(
+            ["CODIGO ISO", "TIPO", "CAPACIDAD", "ESTADO"],
+            [
+                [c.codigo_iso, c.tipo, f"{c.capacidad:.1f}", c.estado.value]
+                for c in contenedores
+            ],
+        )
+
+    def ver_contenedores() -> None:
+        consola.titulo("Contenedores del envio")
         envio = _buscar_envio(servicio, clientes)
         if envio is None:
             return
         try:
-            from uuid import UUID
+            _mostrar_contenedores(envio.id)
+        except LogisticaError as e:
+            consola.error(str(e))
 
-            contenedor_id = UUID(consola.pedir("ID del contenedor"))
-            asignado = servicio.asignar_contenedor(envio.id, contenedor_id)
-        except (LogisticaError, ValueError) as e:
+    def asignar_contenedor() -> None:
+        consola.titulo("Asignar contenedor")
+        consola.aviso("Se acepta el codigo ISO (MSKU1234567) o el UUID.")
+        envio = _buscar_envio(servicio, clientes)
+        if envio is None:
+            return
+        try:
+            contenedor = contenedores.buscar(consola.pedir("Contenedor"))
+            asignado = servicio.asignar_contenedor(envio.id, contenedor.id)
+        except LogisticaError as e:
             consola.error(str(e))
             return
         consola.exito(f"Contenedor {asignado.codigo_iso} asignado.")
+
+    def sacar_contenedor() -> None:
+        consola.titulo("Sacar un contenedor del envio")
+        consola.aviso(
+            "Solo mientras el envio no salio: una vez EN_TRANSITO lo que viajo "
+            "ya viajo, y sacarlo falsearia el historico."
+        )
+        envio = _buscar_envio(servicio, clientes)
+        if envio is None:
+            return
+        try:
+            _mostrar_contenedores(envio.id)
+            contenedor = contenedores.buscar(consola.pedir("Contenedor a sacar"))
+            vuelto = servicio.desasignar_contenedor(envio.id, contenedor.id)
+        except LogisticaError as e:
+            consola.error(str(e))
+            return
+        consola.exito(f"{vuelto.codigo_iso} salio del envio y quedo {vuelto.estado.value}.")
 
     def ver_historial() -> None:
         consola.titulo("Historial de eventos del envio")
@@ -254,10 +296,12 @@ def construir(
             "3": ("Agregar tramo", agregar_tramo),
             "4": ("Cambiar estado", cambiar_estado),
             "5": ("Asignar contenedor", asignar_contenedor),
-            "6": ("Listar por cliente", listar_por_cliente),
-            "7": ("Listar por estado", listar_por_estado),
-            "8": ("Listar demorados", listar_demorados),
-            "9": ("Historial de eventos (trazabilidad)", ver_historial),
-            "10": ("Registrar evento manual", registrar_evento),
+            "6": ("Sacar un contenedor del envio", sacar_contenedor),
+            "7": ("Ver contenedores del envio", ver_contenedores),
+            "8": ("Listar por cliente", listar_por_cliente),
+            "9": ("Listar por estado", listar_por_estado),
+            "10": ("Listar demorados", listar_demorados),
+            "11": ("Historial de eventos (trazabilidad)", ver_historial),
+            "12": ("Registrar evento manual", registrar_evento),
         },
     )

@@ -211,6 +211,12 @@ class Contenedor:
         return MongoAlertaRepository(self.base_mongo)
 
     @cached_property
+    def contenedores_service(self):
+        from logistica.services.contenedor_service import ContenedorService
+
+        return ContenedorService(self.unidad_de_trabajo)
+
+    @cached_property
     def proveedores_service(self):
         from logistica.services.parte_service import ProveedorService
 

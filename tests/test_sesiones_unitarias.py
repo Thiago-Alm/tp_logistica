@@ -65,6 +65,25 @@ def test_los_segundos_restantes_nunca_son_negativos():
     assert nueva_sesion().segundos_restantes(AHORA + timedelta(days=1)) == 0
 
 
+def test_los_segundos_restantes_redondean_hacia_arriba():
+    """Este numero es el TTL que recibe Redis: truncar mataria la sesion antes
+    de su fecha_fin. Con una sesion de 1 segundo, truncar daba 0 apenas el
+    reloj avanzaba un microsegundo y `guardar` la rechazaba por vencida."""
+    sesion = nueva_sesion(fecha_inicio=AHORA, fecha_fin=AHORA + timedelta(seconds=1))
+    un_instante_despues = AHORA + timedelta(microseconds=1)
+    assert sesion.segundos_restantes(un_instante_despues) == 1
+
+
+def test_una_sesion_de_un_segundo_se_puede_guardar():
+    """Regresion: el redondeo hacia abajo la hacia nacer vencida."""
+    cliente = MagicMock()
+    ahora = datetime.now(timezone.utc)
+    sesion = nueva_sesion(fecha_inicio=ahora, fecha_fin=ahora + timedelta(seconds=1))
+    RedisSesionRepository(cliente).guardar(sesion)
+    operacion = cliente.pipeline.return_value.__enter__.return_value
+    assert operacion.expire.call_args[0][1] >= 1
+
+
 def test_todos_los_valores_van_en_mayusculas():
     """D19."""
     for valor in EstadoSesion:
@@ -213,7 +232,7 @@ def test_si_redis_esta_caido_no_se_vuelve_a_pedir_la_clave(monkeypatch):
     assert contenedor.usuarios.autenticar.call_count == 1
 
 
-@pytest.mark.parametrize("nivel,visibles", [(100, 12), (60, 10), (30, 5), (10, 0)])
+@pytest.mark.parametrize("nivel,visibles", [(100, 13), (60, 11), (30, 6), (10, 0)])
 def test_el_menu_se_recorta_segun_el_nivel_del_rol(nivel, visibles):
     assert len(opciones_para(nivel, app._secciones(MagicMock(), nivel))) == visibles
 
@@ -222,7 +241,7 @@ def test_las_opciones_visibles_se_renumeran_desde_uno():
     """Si se filtraran sin renumerar, el menu mostraria 1, 5, 8 en vez de 1, 2, 3."""
     nivel = NIVEL_AUDITOR
     opciones = opciones_para(nivel, app._secciones(MagicMock(), nivel))
-    assert list(opciones) == ["1", "2", "3", "4", "5"]
+    assert list(opciones) == ["1", "2", "3", "4", "5", "6"]
 
 
 def test_el_submenu_usa_el_mismo_filtro_que_el_principal(monkeypatch):
@@ -272,12 +291,12 @@ def test_el_menu_lista_las_sesiones_activas(monkeypatch):
     tabla = MagicMock()
     monkeypatch.setattr(menu_usuarios.consola, "tabla", tabla)
 
-    error, _ = ejecutar_opcion(monkeypatch, "4", usuarios, sesiones, "")
+    error, _ = ejecutar_opcion(monkeypatch, "9", usuarios, sesiones, "")
     error.assert_not_called()
     assert tabla.call_args[0][1][0][1] == "Admin de prueba"
 
 
-@pytest.mark.parametrize("opcion,metodo", [("4", "listar_activas"), ("6", "cerrar")])
+@pytest.mark.parametrize("opcion,metodo", [("9", "listar_activas"), ("10", "cerrar")])
 def test_el_menu_controla_la_caida_de_redis(monkeypatch, opcion, metodo):
     usuarios, sesiones = MagicMock(), MagicMock()
     getattr(sesiones, metodo).side_effect = ErrorDePersistencia("Redis no disponible")

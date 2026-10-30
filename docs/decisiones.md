@@ -1507,6 +1507,14 @@ van en el mismo pipeline transaccional: si el `expire` se perdiera, la sesion
 quedaria viva para siempre. Hay un test de integracion que crea una sesion con
 TTL de 1 segundo y verifica que desaparece sin que nadie la borre.
 
+**El TTL se redondea hacia arriba.** `segundos_restantes()` usaba `int()`, que
+trunca: una sesion con 0,99 segundos de vida daba TTL 0 y `guardar` la
+rechazaba por vencida. Con el TTL de una hora no se notaba, pero el test de
+integracion que crea una sesion de 1 segundo fallaba de manera intermitente,
+segun si el reloj de Windows alcanzaba a avanzar entre construir la entidad y
+guardarla. Ahora usa `ceil`, que es lo correcto para un TTL: truncar mata la
+sesion antes de su `fecha_fin`. Hay dos tests de regresion.
+
 **`listar_activas()` usa SCAN, no KEYS.** `KEYS` bloquea el motor mientras
 recorre todo el espacio de claves, que en este proyecto comparte los locks de
 los procesos periodicos (D14), la cache de reportes y el heartbeat de sensores.
@@ -1967,3 +1975,109 @@ los primeros ocho caracteres de su UUID. La cuenta guarda `titular_tipo` +
 `titular_id` y **no tiene clave foranea**, porque apunta a tres tablas distintas
 (D41): resolver el nombre es tarea de quien muestra, y ahora hay de donde
 sacarlo para los tres tipos.
+
+---
+
+## D52 — Los ABM que estaban a medias: que se puede modificar y que no
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** contenedores, sensores, usuarios, roles, umbrales, contenedores de un envio
+
+Varios ABM tenian el alta y el listado pero les faltaba la M o la B. Al
+completarlos aparecio una pregunta que se repite en todos: **que campos se
+pueden modificar**. La respuesta no es "todos": un campo que identifica algo
+fisico o que lo referencian otras bases no se cambia, porque cambiarlo es
+inventar otra entidad.
+
+| Entidad | No se modifica | Por que |
+|---|---|---|
+| Contenedor | `codigo_iso` | Es ISO 6346, esta impreso en el contenedor, y lo referencian sus lecturas en Cassandra y su nodo en el grafo |
+| Sensor | `numero_serie`, `tipo` | Identifican el equipo fisico; un sensor de temperatura no se convierte en uno de GPS |
+| Usuario | `password_hash` | Tiene su propia operacion: cambiarla exige largo minimo y hasheo, y mezclarla con los datos de contacto haria facil pisarla sin querer |
+| Proveedor / Operador | `cuit` | Es la identidad fiscal y lo referencian las cuentas corrientes |
+
+**Todos los `modificar()` revalidan la entidad completa.** Un `setattr` se
+saltea `__post_init__`, asi que sin la revalidacion un email roto o una
+capacidad negativa llegarian a la base. Como la excepcion sale antes del
+`commit`, la Unidad de Trabajo deshace todo (D28).
+
+### El ABM de contenedores no puede poner los estados que pone el envio
+
+`ASIGNADO` y `EN_TRANSITO` los escribe `EnvioService` **junto con la fila de
+`envio_contenedor`, en la misma transaccion** (D28). Si el ABM pudiera ponerlos
+a mano, quedaria un contenedor marcado como ocupado sin ningun envio que lo
+tenga, y la regla de "un contenedor no puede estar en dos envios activos"
+(supuesto 1) empezaria a rechazar asignaciones validas.
+
+Por eso `cambiar_estado()` solo acepta los estados administrativos
+(`DISPONIBLE`, `EN_MANTENIMIENTO`, `BAJA`) y ademas **se niega a tocar un
+contenedor que ya esta ocupado**: primero hay que sacarlo del envio.
+
+### Sacar un contenedor de un envio
+
+Es la "B" del punto "ABM de contenedores de un envio", y tiene dos reglas:
+
+1. **Solo mientras el envio no salio.** Una vez `EN_TRANSITO`, `EN_PUERTO` o
+   `ENTREGADO`, lo que viajo ya viajo: sacarlo falsearia el historico. Para
+   corregir un envio en curso esta el cambio de estado a `CANCELADO`.
+2. **El contenedor vuelve a `DISPONIBLE` solo si estaba ocupado.** Uno en
+   `EN_MANTENIMIENTO` o en `BAJA` conserva su estado: son decisiones
+   administrativas que no las revierte una desasignacion.
+
+**Se borra la fila de `envio_contenedor`, no se marca.** La tabla registra que
+contenedores componen el envio, no un historial de asignaciones; una fila
+"desasignada" obligaria a `listar_contenedores` a filtrar en todas las
+consultas.
+
+### Un evento nuevo, y una asimetria deliberada entre los dos proyectores
+
+Sacar un contenedor publica `CONTENEDOR_DESASIGNADO` al Outbox, con el mismo
+agregado y el mismo payload que la asignacion.
+
+**Neo4j lo proyecta borrando la relacion:**
+
+```cypher
+MATCH (e:Envio {id: $envio_id})-[r:INCLUYE]->(co:Contenedor {id: $contenedor_id})
+DELETE r
+```
+
+Borrar es tan idempotente como `MERGE`: si la relacion ya no esta, el `MATCH` no
+encuentra nada y la consulta no hace nada, asi que reintentar no rompe (D35). Y
+**tiene que proyectarse**, porque las consultas de D37 recorren `INCLUYE` para
+responder por que tramos paso un contenedor: una relacion que quedara ahi
+estaria mintiendo.
+
+**Cassandra NO lo registra, a proposito.** La traza de `eventos_por_envio` es el
+**recorrido** del envio —carga iniciada, en transito, en puerto, entregado— y
+sacar un contenedor es una correccion administrativa, no un movimiento. Sumarlo
+obligaria ademas a un `TipoEventoLogistico` nuevo y a cambiar el CHECK de la
+tabla. El proyector de Cassandra filtra por lista blanca, asi que el evento
+nuevo simplemente no le interesa.
+
+Verificado de punta a punta contra las bases: asignar y sincronizar deja
+`INCLUYE = 1`, sacar y sincronizar lo deja en `0`, y el contenedor vuelve a
+`DISPONIBLE`.
+
+### Cambiarle el nivel a un rol le cambia el menu a todos sus usuarios
+
+El `nivel_permisos` de un rol es lo que recorta el menu (D42, D49). Darlo de
+alta en 100 es dar acceso total, y bajarlo deja gente sin opciones que antes
+veia. Por eso el menu **avisa a cuantos usuarios les va a cambiar la pantalla**
+antes de confirmar, y el servicio lo registra con `log.warning` cuando el nivel
+efectivamente cambia. Es el unico ABM del sistema cuya modificacion afecta a
+terceros sin tocar sus filas.
+
+### Desinstalar un sensor no borra sus lecturas
+
+Sacar un sensor de un contenedor le pone `contenedor_id` en `NULL`, pero sus
+lecturas en Cassandra quedan como estan: **cada lectura guarda el
+`contenedor_id` del momento** (D20), asi que el historico sigue siendo cierto
+aunque el sensor hoy este en otro lado o en stock. Es la misma idea que el
+snapshot del incidente (D12): el dato historico registra las circunstancias de
+cuando ocurrio, no las actuales.
+
+### Eliminar un umbral es un borrado fisico
+
+A diferencia de clientes o contenedores, un umbral **no lo referencia nadie**:
+una alerta ya creada guarda en su detalle el limite que se violo, asi que sigue
+siendo legible sin el umbral. Lo que si cambia es que esa magnitud deja de
+evaluarse, y el control de cobertura (D48) la va a marcar como faltante.
