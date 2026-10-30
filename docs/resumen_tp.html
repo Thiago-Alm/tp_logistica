@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>TP Persistencia Poliglota — Resumen completo</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 10.5pt; line-height: 1.5; color: #1a1a1a; margin: 0;
+  }
+  h1, h2, h3, h4 { color: #0f2b46; line-height: 1.25; }
+  h1 { font-size: 20pt; margin: 0 0 4px; }
+  h2 {
+    font-size: 15pt; margin: 26px 0 10px; padding-bottom: 5px;
+    border-bottom: 2px solid #0f2b46; page-break-after: avoid;
+  }
+  h3 { font-size: 12pt; margin: 18px 0 6px; page-break-after: avoid; }
+  h4 { font-size: 10.5pt; margin: 13px 0 4px; color: #2b4a66; page-break-after: avoid; }
+  p { margin: 0 0 9px; text-align: justify; }
+  ul, ol { margin: 0 0 9px; padding-left: 20px; }
+  li { margin-bottom: 4px; }
+  code {
+    font-family: Consolas, "Courier New", monospace; font-size: 9pt;
+    background: #eef2f6; padding: 1px 4px; border-radius: 3px;
+  }
+  pre {
+    font-family: Consolas, "Courier New", monospace; font-size: 8.6pt;
+    background: #f6f8fa; border: 1px solid #dde3e9; border-left: 3px solid #0f2b46;
+    padding: 8px 10px; border-radius: 3px; overflow-x: auto;
+    page-break-inside: avoid; margin: 8px 0 11px; line-height: 1.4;
+  }
+  table {
+    width: 100%; border-collapse: collapse; margin: 9px 0 14px;
+    font-size: 9.2pt; page-break-inside: avoid;
+  }
+  th {
+    background: #0f2b46; color: #fff; text-align: left;
+    padding: 6px 8px; font-weight: 600;
+  }
+  td { padding: 5px 8px; border-bottom: 1px solid #dde3e9; vertical-align: top; }
+  tr:nth-child(even) td { background: #f7f9fb; }
+  .portada {
+    text-align: center; padding-top: 55mm; page-break-after: always;
+  }
+  .portada .materia { font-size: 12pt; color: #4a6072; margin-bottom: 30px; }
+  .portada h1 { font-size: 26pt; margin-bottom: 10px; }
+  .portada .sub { font-size: 13pt; color: #2b4a66; margin-bottom: 45px; }
+  .portada .datos { font-size: 11pt; color: #333; line-height: 2; }
+  .nota {
+    background: #fff8e6; border-left: 3px solid #d79b00;
+    padding: 8px 11px; margin: 10px 0 13px; page-break-inside: avoid;
+  }
+  .clave {
+    background: #eaf3ec; border-left: 3px solid #2e7d4f;
+    padding: 8px 11px; margin: 10px 0 13px; page-break-inside: avoid;
+  }
+  .ojo {
+    background: #fdeeee; border-left: 3px solid #b3261e;
+    padding: 8px 11px; margin: 10px 0 13px; page-break-inside: avoid;
+  }
+  .nota p:last-child, .clave p:last-child, .ojo p:last-child { margin-bottom: 0; }
+  .etiqueta { font-weight: 700; color: #0f2b46; }
+  .salto { page-break-before: always; }
+  .indice ol { padding-left: 22px; }
+  .indice li { margin-bottom: 5px; }
+  .pie { font-size: 8.6pt; color: #667; text-align: center; margin-top: 28px; }
+  .mini { font-size: 9pt; color: #556; }
+  .dos { column-count: 2; column-gap: 18px; }
+</style>
+</head>
+<body>
+
+<div class="portada">
+  <div class="materia">Ingenieria de Datos II &middot; UADE</div>
+  <h1>Plataforma de Logistica Internacional<br>y Monitoreo IoT</h1>
+  <div class="sub">Trabajo Practico: Persistencia Poliglota</div>
+  <div class="datos">
+    <strong>Resumen completo del sistema</strong><br>
+    Que hicimos, como funciona y por que lo decidimos asi<br><br>
+    <span class="mini">Documento de referencia para la defensa individual</span><br>
+    <span class="mini">Entrega: 17/11/2026 &middot; Congelamiento de codigo: 6/11/2026</span>
+  </div>
+</div>
+
+<h2>Como usar este documento</h2>
+<p>
+  Esto no es el informe de entrega: es el <strong>manual interno del grupo</strong>. Esta
+  escrito para que cualquiera de los cuatro pueda sentarse frente al profesor y
+  explicar cualquier parte del sistema, incluidas las que no programo.
+</p>
+<p>
+  La defensa es <strong>individual</strong> y tiene tres partes: que la aplicacion funcione
+  en vivo, preguntas sobre las decisiones y como se implemento cada cosa, y
+  posiblemente una modificacion o una consulta nueva pedida en el momento. Por eso
+  el documento insiste menos en <em>que</em> hace cada cosa y mas en <strong>por que esta
+  hecha asi y que alternativa se descarto</strong>: eso es lo que se pregunta.
+</p>
+<div class="clave">
+  <p>
+    <span class="etiqueta">Regla para estudiarlo:</span> si podes responder "por que esta
+    base y no otra" y "que pasaria si lo hubieramos hecho al reves" para cada pieza,
+    estas listo. Las respuestas de memoria se notan; los motivos no.
+  </p>
+</div>
+
+<div class="indice">
+  <h3>Contenido</h3>
+  <ol>
+    <li>De que trata el trabajo</li>
+    <li>La idea central: persistencia poliglota</li>
+    <li>Las cinco bases y por que cada una</li>
+    <li>Como esta organizado el codigo</li>
+    <li>El problema de la doble escritura y el Outbox</li>
+    <li>Las consultas que ninguna base puede responder sola</li>
+    <li>Decisiones clave, agrupadas por tema</li>
+    <li>Como se corre el sistema</li>
+    <li>Que hay dentro de la aplicacion</li>
+    <li>Errores reales que encontramos (y que ensenan)</li>
+    <li>Limitaciones conocidas</li>
+    <li>Preguntas probables y como responderlas</li>
+  </ol>
+</div>
+
+<h2 class="salto">1. De que trata el trabajo</h2>
+
+<p>
+  El sistema modela una <strong>plataforma de logistica internacional con monitoreo
+  IoT</strong>. En palabras simples: una empresa que mueve carga en contenedores por
+  barco, camion y avion, y que ademas tiene sensores dentro de esos contenedores
+  reportando temperatura, humedad, vibracion y posicion GPS.
+</p>
+
+<h3>Las cosas que el sistema maneja</h3>
+<table>
+  <tr><th>Concepto</th><th>Que es</th></tr>
+  <tr><td>Cliente</td><td>Quien contrata el envio. Tiene cuenta corriente.</td></tr>
+  <tr><td>Operador logistico</td><td>Quien efectivamente mueve la carga: naviera, transportista, aerolinea.</td></tr>
+  <tr><td>Proveedor</td><td>Quien presta un servicio: estiba, combustible, mantenimiento.</td></tr>
+  <tr><td>Envio</td><td>El pedido completo de un cliente, de origen a destino.</td></tr>
+  <tr><td>Tramo</td><td>Cada etapa del envio. Un envio Buenos Aires &rarr; Rotterdam puede tener un tramo terrestre hasta el puerto y uno maritimo hasta destino.</td></tr>
+  <tr><td>Contenedor</td><td>La unidad fisica de carga. Viaja en uno o varios envios a lo largo del tiempo.</td></tr>
+  <tr><td>Sensor</td><td>El equipo IoT instalado en un contenedor. Reporta cada cierto intervalo.</td></tr>
+  <tr><td>Lectura</td><td>Cada medicion que manda un sensor. Es lo que mas crece de todo el sistema.</td></tr>
+  <tr><td>Incidente</td><td>Algo que salio mal en un envio: demora, dano, robo, problema de aduana.</td></tr>
+  <tr><td>Alerta</td><td>Se genera sola cuando una lectura sale del rango permitido.</td></tr>
+  <tr><td>Factura / Cuenta corriente</td><td>Lo que se le cobra a clientes, operadores y proveedores.</td></tr>
+</table>
+
+<h3>Lo que pide el enunciado</h3>
+<p>
+  El profesor dio una lista de <strong>41 puntos que deben estar "presentes y
+  operativos, es decir que tienen datos para dar un resultado"</strong>. Esa frase es
+  importante y define el criterio de todo el trabajo:
+</p>
+<div class="ojo">
+  <p>
+    <span class="etiqueta">Una funcion sin menu no cuenta.</span> No alcanza con que el
+    codigo exista y tenga tests: si el profesor no la puede ejecutar desde la
+    aplicacion y ver un resultado, vale cero. Buena parte del trabajo final fue
+    justamente <strong>hacer alcanzable</strong> codigo que ya funcionaba pero que nadie
+    podia correr.
+  </p>
+</div>
+<p>
+  Los 41 puntos cubren cuatro familias: los <strong>ABM</strong> (altas, bajas y
+  modificaciones de cada entidad), la <strong>facturacion y cuentas corrientes</strong>, el
+  <strong>monitoreo IoT</strong> (lecturas, alertas, GPS, estado de sensores) y los
+  <strong>reportes analiticos</strong> (rankings, promedios, tiempos, prediccion).
+</p>
+
+<h2 class="salto">2. La idea central: persistencia poliglota</h2>
+
+<p>
+  <strong>Persistencia poliglota</strong> significa usar varias bases de datos en un mismo
+  sistema, eligiendo cada una segun la forma del dato que guarda, en vez de forzar
+  todo dentro de un unico motor.
+</p>
+<p>
+  La pregunta que hay que saber responder no es "que bases usamos" sino
+  <strong>"por que esta y no otra"</strong>. Y la respuesta correcta nunca es "porque el TP
+  lo pedia": siempre hay una caracteristica del dato que lo justifica.
+</p>
+
+<h3>El razonamiento, en una linea por motor</h3>
+<table>
+  <tr><th>Si el dato...</th><th>Va en</th><th>Porque</th></tr>
+  <tr>
+    <td>tiene relaciones estrictas y necesita transacciones</td>
+    <td>PostgreSQL</td>
+    <td>Es el unico que garantiza que varias escrituras pasen todas o ninguna</td>
+  </tr>
+  <tr>
+    <td>cambia de forma segun el caso</td>
+    <td>MongoDB</td>
+    <td>Un documento admite campos distintos sin columnas vacias</td>
+  </tr>
+  <tr>
+    <td>es una serie temporal que crece sin parar</td>
+    <td>Cassandra</td>
+    <td>Escribe muy rapido y reparte por particiones; no se degrada al crecer</td>
+  </tr>
+  <tr>
+    <td>vale por como se conecta con otros</td>
+    <td>Neo4j</td>
+    <td>Recorrer relaciones es su operacion natural, no un JOIN encadenado</td>
+  </tr>
+  <tr>
+    <td>es temporal y se consulta a cada rato</td>
+    <td>Redis</td>
+    <td>Vive en memoria y vence solo, sin que nadie lo borre</td>
+  </tr>
+</table>
+
+<div class="clave">
+  <p>
+    <span class="etiqueta">La contracara, y hay que decirla:</span> la persistencia
+    poliglota <strong>no es gratis</strong>. Se pierde la transaccion que abarca todo, se
+    pierden las claves foraneas entre motores, y hay que mantener cinco modelos en
+    lugar de uno. Casi todas las decisiones dificiles del trabajo salen de ahi: el
+    Outbox, el chequeo de consistencia, las validaciones en los servicios.
+  </p>
+</div>
+
+<h2 class="salto">3. Las cinco bases y por que cada una</h2>
+
+<h3>PostgreSQL 16 &mdash; la fuente de verdad</h3>
+<p>
+  Guarda <strong>17 tablas</strong>: clientes, usuarios, roles, operadores, proveedores,
+  ubicaciones, vehiculos, envios, tramos, contenedores, sensores, la relacion
+  envio-contenedor, tarifas, facturas, pagos, cuentas corrientes y movimientos.
+  Mas una tabla tecnica, <code>outbox</code>, que se explica en la seccion 5.
+</p>
+<p>
+  <strong>Por que:</strong> estos datos tienen relaciones que no pueden romperse (un envio
+  sin cliente no existe) y operaciones que deben ser atomicas. El caso que lo
+  justifica solo es <strong>emitir una factura</strong>: hay que escribir la factura, el
+  movimiento en el libro mayor y el saldo de la cuenta. Si una de las tres falla,
+  ninguna debe quedar. Eso es una transaccion, y solo PostgreSQL la da.
+</p>
+<p>
+  Las reglas del negocio estan declaradas en la base con <code>CHECK</code>, no solo en
+  el codigo. Por ejemplo, que un envio <code>ENTREGADO</code> tenga fecha de llegada
+  real y uno no entregado no la tenga:
+</p>
+<pre>CONSTRAINT chk_envio_llegada_segun_estado CHECK (
+    (estado = 'ENTREGADO' AND fecha_llegada_real IS NOT NULL) OR
+    (estado &lt;&gt; 'ENTREGADO' AND fecha_llegada_real IS NULL))</pre>
+
+<h3>MongoDB 7 &mdash; lo que cambia de forma</h3>
+<p>Guarda cinco colecciones:</p>
+<table>
+  <tr><th>Coleccion</th><th>Que guarda</th><th>Por que documental</th></tr>
+  <tr>
+    <td><code>incidentes</code></td>
+    <td>Problemas de un envio, con una foto del envio embebida y su historial de estados</td>
+    <td>El historial es una lista que se lee siempre junto al incidente</td>
+  </tr>
+  <tr>
+    <td><code>alertas</code></td>
+    <td>Violaciones de umbral, con el detalle de que valor se paso y de cuanto</td>
+    <td>El detalle cambia segun el tipo de alerta</td>
+  </tr>
+  <tr>
+    <td><code>umbrales</code></td>
+    <td>Rango normal de cada magnitud, por tipo de contenedor</td>
+    <td>Configuracion chica y de forma variable</td>
+  </tr>
+  <tr>
+    <td><code>reportes</code></td>
+    <td>Solicitudes de reportes parametrizados y facturables</td>
+    <td>Los parametros cambian segun el reporte: rango, limite, eje</td>
+  </tr>
+  <tr>
+    <td><code>conversaciones</code> y <code>mensajes</code></td>
+    <td>Mensajeria con clientes, proveedores y operadores</td>
+    <td>Texto libre, sin esquema rigido</td>
+  </tr>
+</table>
+
+<div class="clave">
+  <p>
+    <span class="etiqueta">La pregunta mas probable sobre MongoDB:</span> "por que el
+    historial de un incidente va <em>embebido</em> y los mensajes de una conversacion
+    <em>no</em>". La respuesta es <strong>cuanto crece cada uno</strong>. El historial son unos
+    pocos cambios de estado y se lee siempre junto al incidente. Los mensajes de un
+    hilo crecen sin limite, y un documento de MongoDB no puede pasar los
+    <strong>16&nbsp;MB</strong>. Por eso los mensajes son una coleccion aparte que referencia
+    su conversacion.
+  </p>
+</div>
+
+<h3>Cassandra 5 &mdash; la serie temporal</h3>
+<p>
+  Guarda las <strong>lecturas de los sensores</strong>, el <strong>recorrido GPS</strong> de los
+  contenedores y la <strong>traza de eventos</strong> de cada envio.
+</p>
+<p>
+  <strong>Por que:</strong> es el dato que mas crece. Con cinco sensores reportando cada
+  minuto son 7.200 filas por dia; con quinientos, 720.000. Cassandra esta hecha
+  para escribir mucho y rapido, y reparte los datos en particiones para que
+  consultar no se vuelva mas lento a medida que crece.
+</p>
+<p>
+  <strong>Lo que hay que entender de Cassandra:</strong> se disena <em>al reves</em> que una
+  base relacional. Primero se escribe la consulta que uno quiere hacer, y despues
+  se crea una tabla a medida de esa consulta. Por eso el mismo dato esta repetido
+  en varias tablas: <code>lecturas_por_sensor</code> y <code>recorrido_por_contenedor</code>
+  guardan partes de la misma lectura, porque se consultan distinto.
+</p>
+<p>
+  La <strong>clave de particion</strong> de cada tabla incluye el dia
+  (<code>(sensor_id, dia)</code>). Eso evita que un sensor con anos de historia termine
+  con una particion gigante. La consecuencia practica, que aparece en la
+  aplicacion: pedir un rango de fechas son varias consultas, una por dia, y por eso
+  hay un tope de <strong>31 dias por consulta</strong>.
+</p>
+
+<h3>Neo4j 5 &mdash; la red de relaciones</h3>
+<p>
+  Guarda una <strong>proyeccion</strong> de la red logistica: clientes, envios, tramos,
+  contenedores, operadores, vehiculos y ubicaciones, con las relaciones entre
+  ellos.
+</p>
+<p>
+  <strong>Por que:</strong> hay preguntas que en SQL serian una cadena de JOIN incomoda y
+  en un grafo son un recorrido natural. Las tres que resuelve:
+</p>
+<ul>
+  <li>la <strong>ruta completa</strong> de un envio, tramo por tramo;</li>
+  <li>la <strong>red de un cliente</strong>: sus envios y que operadores los movieron;</li>
+  <li>por que <strong>tramos paso un contenedor</strong>.</li>
+</ul>
+<div class="nota">
+  <p>
+    <span class="etiqueta">Dato importante:</span> Neo4j <strong>no es duenio de nada</strong>.
+    Todo lo que tiene es derivado de PostgreSQL. Si se borrara entero, se puede
+    reconstruir con una opcion del menu. Eso es lo que hace defendible que su
+    consistencia sea eventual.
+  </p>
+</div>
+
+<h3>Redis 7 &mdash; lo temporal</h3>
+<p>Cumple cuatro funciones, y cada una usa una estructura distinta:</p>
+<table>
+  <tr><th>Uso</th><th>Estructura</th><th>Por que Redis</th></tr>
+  <tr>
+    <td>Sesiones de usuario</td><td>Hash con TTL</td>
+    <td>La sesion nace con fecha de muerte: Redis la borra sola al vencer</td>
+  </tr>
+  <tr>
+    <td>Heartbeat de sensores</td><td>Sorted set</td>
+    <td>"Cuanto hace que no reporta" es una sola lectura, no un barrido</td>
+  </tr>
+  <tr>
+    <td>Cache de reportes</td><td>String con TTL de 60s</td>
+    <td>Consultas pesadas que varios piden con los mismos parametros</td>
+  </tr>
+  <tr>
+    <td>Locks de procesos</td><td><code>SET NX EX</code></td>
+    <td>Evita que dos instancias corran el mismo proceso a la vez</td>
+  </tr>
+</table>
+
+<h2 class="salto">4. Como esta organizado el codigo</h2>
+
+<p>
+  El codigo esta en <strong>capas</strong>, y la regla es que las de adentro no saben nada
+  de las de afuera.
+</p>
+
+<pre>domain/          Las entidades y sus reglas. No sabe que existen las bases.
+repositories/    Los contratos (clases abstractas): "que se puede guardar y pedir".
+infrastructure/  Una carpeta por motor. Implementa los contratos.
+services/        Los casos de uso. Orquesta: valida, compone, coordina.
+sync/            El Outbox y los proyectores hacia Neo4j y Cassandra.
+jobs/            Procesos que corren solos: simulador IoT y planificador.
+cli/             Los menus de la aplicacion.
+container.py     Arma todo y conecta las piezas.</pre>
+
+<h3>Por que esta division</h3>
+<p>
+  <strong>El dominio no conoce las bases.</strong> Un <code>Envio</code> sabe que no puede
+  pasar de <code>CREADO</code> a <code>ENTREGADO</code> sin pasar por el medio, pero no sabe
+  que existe PostgreSQL. Esa regla se cumple igual venga de donde venga el dato.
+</p>
+<p>
+  <strong>Los repositorios son contratos, no clases concretas.</strong> El servicio pide un
+  <code>EnvioRepository</code>; que detras haya PostgreSQL es un detalle. Por eso los
+  tests pueden usar dobles en memoria y correr sin ninguna base.
+</p>
+
+<h3>Tres patrones que conviene saber nombrar</h3>
+
+<h4>Repository</h4>
+<p>
+  Cada entidad tiene una interfaz que define que operaciones se pueden hacer. Lo
+  importante: <strong>los repositorios reciben y devuelven entidades del dominio, nunca
+  filas ni diccionarios</strong>. Si un repositorio devolviera un diccionario, el
+  conocimiento de como esta guardado el dato se escaparia hacia arriba.
+</p>
+<p>
+  Y <strong>no existe un metodo <code>cambiar_estado(id, estado)</code></strong>. Si existiera, se
+  podria saltear la validacion de transiciones. Para cambiar un estado hay que
+  traer la entidad, pedirle el cambio a ella (que valida) y guardarla.
+</p>
+
+<h4>Unit of Work</h4>
+<p>
+  Es lo que permite que varias escrituras compartan una transaccion. Todos los
+  repositorios de PostgreSQL comparten la misma conexion:
+</p>
+<pre>with self._uow as uow:
+    uow.facturas.guardar(factura)
+    uow.movimientos.guardar(movimiento)
+    uow.cuentas.actualizar(cuenta)
+    uow.commit()          # las tres, o ninguna</pre>
+<p>
+  Si algo falla antes del <code>commit</code>, al salir del <code>with</code> se hace
+  <code>rollback</code> automaticamente.
+</p>
+
+<h4>Inyeccion de dependencias</h4>
+<p>
+  <code>container.py</code> es el unico lugar donde se decide que implementacion concreta
+  usa cada servicio. Nada mas en el sistema crea una conexion.
+</p>
+
+<h2 class="salto">5. El problema de la doble escritura y el Outbox</h2>
+
+<p>
+  Esta es <strong>la pieza mas importante del trabajo</strong> y la que mas probablemente
+  pregunten. Vale la pena que los cuatro la sepan explicar.
+</p>
+
+<h3>El problema</h3>
+<p>
+  Cuando se crea un envio hay que guardarlo en PostgreSQL <em>y</em> reflejarlo en el
+  grafo de Neo4j. Son dos bases distintas: <strong>no comparten transaccion</strong>.
+  Escribir en las dos, una despues de la otra, tiene un agujero:
+</p>
+<pre>guardar en PostgreSQL   -> OK
+guardar en Neo4j        -> falla (se cayo la red)
+# resultado: el envio existe pero el grafo no lo tiene. Nadie se entera.</pre>
+<p>
+  Y al reves es peor: si primero se escribe Neo4j y falla PostgreSQL, queda un
+  envio en el grafo que no existe. Esto se llama <strong>problema de la doble
+  escritura</strong> (<em>dual write</em>).
+</p>
+
+<h3>La solucion: el patron Outbox</h3>
+<p>
+  En vez de escribir en las dos bases, se escribe <strong>solo en PostgreSQL</strong>: el
+  dato y, en la misma transaccion, un <strong>evento</strong> en una tabla llamada
+  <code>outbox</code>.
+</p>
+<pre>with uow:
+    uow.envios.guardar(envio)                      # el dato
+    uow.outbox.guardar(eventos.envio_creado(envio))  # el aviso
+    uow.commit()      # las dos, o ninguna: es UNA transaccion</pre>
+<p>
+  Despues, un proceso aparte (el <strong>worker</strong>) lee los eventos pendientes y los
+  aplica en Neo4j y en Cassandra. Si falla, el evento queda pendiente y se
+  reintenta.
+</p>
+
+<div class="clave">
+  <p>
+    <span class="etiqueta">La frase que resume todo:</span> el Outbox convierte dos
+    escrituras que podian desincronizarse en <strong>una sola escritura transaccional
+    mas una propagacion reintentable</strong>.
+  </p>
+</div>
+
+<h3>Los tres detalles que hacen que funcione</h3>
+
+<h4>1. El evento lo publica el servicio</h4>
+<p>
+  No el repositorio ni un trigger de la base. El repositorio no sabe <em>por que</em>
+  se guarda algo, y un trigger esconderia logica de negocio dentro de la base,
+  donde nadie la busca ni se puede testear.
+</p>
+
+<h4>2. Los proyectores son idempotentes</h4>
+<p>
+  Como un evento se puede reintentar, puede aplicarse dos veces. Por eso las
+  consultas Cypher usan <code>MERGE</code> (crea si no existe, no duplica) y
+  <strong>nunca <code>CREATE</code></strong>.
+</p>
+<pre>MERGE (e:Envio {id: $id})      // si ya esta, no hace nada
+SET e.estado = $estado</pre>
+<p>
+  La combinacion de <strong>reintento</strong> (entrega al menos una vez) con
+  <strong>idempotencia</strong> da el efecto de "exactamente una vez".
+</p>
+
+<h4>3. Hay reintentos con espera creciente</h4>
+<p>
+  Un evento que falla no se reintenta inmediatamente para siempre: espera cada vez
+  mas (<em>backoff exponencial</em>) y hay un tope de intentos. Si no, un evento roto
+  consumiria el worker eternamente.
+</p>
+
+<h3>La red de seguridad</h3>
+<p>
+  Igual puede pasar algo raro. Por eso hay dos herramientas en el menu de
+  Sincronizacion:
+</p>
+<ul>
+  <li><strong>Verificar consistencia:</strong> compara que cada envio, cliente y contenedor
+      de PostgreSQL tenga su nodo en Neo4j, y lista los que falten.</li>
+  <li><strong>Reconstruir el grafo:</strong> borra Neo4j entero y lo rehace desde
+      PostgreSQL. Se puede hacer porque el grafo no es duenio de nada.</li>
+</ul>
+<p class="mini">
+  Decisiones relacionadas: D34 (quien publica), D35 (idempotencia), D36 (chequeo
+  de consistencia), D40 (la traza de Cassandra tambien pasa por el Outbox).
+</p>
+
+<h2 class="salto">6. Las consultas que ninguna base puede responder sola</h2>
+
+<p>
+  Estas son las piezas que <strong>demuestran</strong> que el sistema es poliglota de
+  verdad y no cinco bases puestas al lado. Si el profesor pregunta "para que les
+  sirvio usar varias bases", la respuesta esta aca.
+</p>
+
+<h3>Promedio de incidentes por pais, estado o cliente</h3>
+<p>
+  Los incidentes estan en MongoDB y los envios en PostgreSQL.
+  <strong>MongoDB cuenta el numerador</strong> (cuantos incidentes hay por grupo) y
+  <strong>PostgreSQL el denominador</strong> (cuantos envios hay en ese grupo). El promedio
+  lo compone el servicio, porque ninguna consulta sola lo responde.
+</p>
+<div class="clave">
+  <p>
+    <span class="etiqueta">El caso mas interesante de todo el TP:</span> el promedio
+    <strong>por estado del envio</strong>. Ese estado <em>no esta</em> en el documento del
+    incidente, y no puede estarlo: el incidente guarda una foto de cuando ocurrio,
+    y el estado del envio <strong>cambia con el tiempo</strong>. Entonces MongoDB agrupa los
+    incidentes por envio, PostgreSQL dice en que estado esta hoy cada uno, y el
+    servicio los suma por estado.
+  </p>
+</div>
+
+<h3>Ranking de rutas con mas incidentes</h3>
+<p>
+  Este es el contrario, y por eso es un buen par para comparar: se resuelve
+  <strong>entero dentro de MongoDB</strong>, con una sola agregacion. Funciona porque cada
+  incidente guarda embebida una <strong>foto de la ruta</strong> (<code>ARBUE-&gt;NLRTM</code>) al
+  momento en que ocurrio. Sin esa foto habria que reconstruir la ruta desde el
+  grafo o desde los tramos para cada incidente.
+</p>
+<p class="mini">
+  La moraleja: una denormalizacion bien elegida convierte una consulta que cruza
+  tres motores en una sola agregacion.
+</p>
+
+<h3>Reportes solicitados y facturables</h3>
+<p>Un flujo de tres pasos que toca tres motores:</p>
+<table>
+  <tr><th>Paso</th><th>Que pasa</th><th>Donde</th></tr>
+  <tr><td>1. Solicitar</td><td>Se registra el pedido con sus parametros y se le pone precio</td><td>MongoDB</td></tr>
+  <tr><td>2. Generar</td><td>Se calcula el reporte y se guarda cuantas filas dio</td><td>PostgreSQL / MongoDB</td></tr>
+  <tr><td>3. Facturar</td><td>Se emite la factura y se imputa a la cuenta corriente</td><td>PostgreSQL</td></tr>
+</table>
+<p>
+  <strong>Por que son tres operaciones y no una:</strong> pueden fallar por separado y pasan
+  en momentos distintos. Si fuera un solo metodo, un error al calcular borraria el
+  pedido del cliente.
+</p>
+<p>
+  <strong>El precio queda congelado</strong> en la solicitud: si manana cambia la tarifa, se
+  factura lo que se cotizo cuando el cliente lo pidio.
+</p>
+
+<h3>Prediccion de atrasos</h3>
+<p>
+  Cruza PostgreSQL (envios y tramos) con MongoDB (incidentes abiertos) para armar,
+  por cada envio en curso, un <strong>puntaje de riesgo con sus motivos</strong> y una fecha
+  de llegada proyectada.
+</p>
+<div class="ojo">
+  <p>
+    <span class="etiqueta">No se uso machine learning, y hay que defenderlo:</span> con
+    seis envios de prueba un modelo no tendria de donde aprender. Pero el motivo de
+    fondo es otro: ante "por que este envio es de riesgo ALTO" la unica respuesta
+    seria "porque lo dijo el modelo". <strong>Un sistema de logistica que no puede
+    explicar una alerta no sirve para operar.</strong>
+  </p>
+</div>
+<p>Los factores que suman puntos, todos observables:</p>
+<table>
+  <tr><th>Factor</th><th>Puntos</th><th>De donde sale</th></tr>
+  <tr><td>Tramos que ya llegaron tarde</td><td>2 c/u</td><td>PostgreSQL</td></tr>
+  <tr><td>Tramos vencidos sin registrar llegada</td><td>3 c/u</td><td>PostgreSQL</td></tr>
+  <tr><td>Incidentes abiertos del envio</td><td>2 c/u</td><td>MongoDB</td></tr>
+  <tr><td>...de severidad ALTA o CRITICA</td><td>+3 c/u</td><td>MongoDB</td></tr>
+  <tr><td>La llegada estimada vencio y falta recorrido</td><td>4</td><td>PostgreSQL</td></tr>
+  <tr><td>Recorrido completo sin entrega registrada</td><td>3</td><td>PostgreSQL</td></tr>
+</table>
+<p>
+  <strong>El puntaje mide riesgo; el atraso proyectado mide tiempo.</strong> Son dos numeros
+  distintos y no se mezclan: el atraso sale del que el envio ya acumulo en sus
+  tramos, no del puntaje. Derivar dias a partir de puntos daria un numero inventado
+  con cara de dato.
+</p>
+
+<h3>Monitoreo IoT: cuatro motores en una pantalla</h3>
+<table>
+  <tr><th>Dato</th><th>Motor</th><th>Por que</th></tr>
+  <tr><td>Ficha del sensor</td><td>PostgreSQL</td><td>Dato estable, se relaciona con el contenedor</td></tr>
+  <tr><td>Lectura</td><td>Cassandra</td><td>Serie temporal que crece sin parar</td></tr>
+  <tr><td>Umbral</td><td>MongoDB</td><td>Configuracion chica y de forma variable</td></tr>
+  <tr><td>Alerta</td><td>MongoDB</td><td>Documento con detalle embebido</td></tr>
+  <tr><td>Heartbeat</td><td>Redis</td><td>"Cuanto hace que no reporta", en una lectura</td></tr>
+</table>
+
+<h2 class="salto">7. Decisiones clave, agrupadas por tema</h2>
+
+<p>
+  El proyecto tiene <strong>58 decisiones documentadas</strong> en
+  <code>docs/decisiones.md</code>. Aca estan las que mas probablemente se pregunten,
+  agrupadas. Cada una dice <em>que se decidio</em> y <em>que se descarto</em>.
+</p>
+
+<h3>Sobre el dominio</h3>
+<table>
+  <tr><th>#</th><th>Decision</th><th>Por que</th></tr>
+  <tr>
+    <td>D3</td><td>Donde va cada validacion</td>
+    <td><strong>El criterio:</strong> "puedo verificar esta regla con los campos del objeto, sin consultar ninguna base?" Si es si, va en el dominio. Si no, va en el servicio. Ejemplo: que el CUIT tenga 11 digitos va en la entidad; que no este repetido va en el servicio.</td>
+  </tr>
+  <tr>
+    <td>D4</td><td>Las transiciones de estado viven en el dominio</td>
+    <td>Un diccionario consultado desde el enum dice a que estados se puede pasar. Se descarto el patron State: mas clases para el mismo mapa.</td>
+  </tr>
+  <tr>
+    <td>D6, D7</td><td><code>Envio</code> no carga sus tramos; la fecha estimada se deriva</td>
+    <td>La llegada estimada es el maximo de los tramos. Guardarla seria un dato duplicado que hay que sincronizar cada vez que cambia un tramo.</td>
+  </tr>
+  <tr>
+    <td>D15</td><td>El dinero es <code>Decimal</code>, nunca <code>float</code></td>
+    <td>Con float, <code>0.1 + 0.2</code> no da <code>0.3</code> y los saldos se desvian. En la base es <code>NUMERIC(12,2)</code>.</td>
+  </tr>
+  <tr>
+    <td>D18</td><td>Los repositorios no exponen <code>cambiar_estado</code></td>
+    <td>Si existiera, se podria saltear la validacion de transiciones.</td>
+  </tr>
+  <tr>
+    <td>D19</td><td>Los valores de los enums son identicos en los cinco motores</td>
+    <td>Todo en MAYUSCULAS. Si Mongo guardara <code>"activo"</code> y Postgres <code>"ACTIVO"</code>, cualquier cruce fallaria en silencio.</td>
+  </tr>
+</table>
+
+<h3>Sobre la persistencia</h3>
+<table>
+  <tr><th>#</th><th>Decision</th><th>Por que</th></tr>
+  <tr>
+    <td>D28</td><td>Unit of Work</td>
+    <td>Los repositorios comparten conexion para que varias escrituras sean una transaccion.</td>
+  </tr>
+  <tr>
+    <td>D29</td><td>Los errores del motor se traducen</td>
+    <td>Un <code>UniqueViolation</code> de psycopg se convierte en <code>ConflictoDeDatos</code>. Asi el servicio no sabe que usa PostgreSQL.</td>
+  </tr>
+  <tr>
+    <td>D33</td><td>Los reportes devuelven objetos, nunca tuplas</td>
+    <td><code>fila.razon_social</code> se entiende; <code>fila[2]</code> hay que ir a buscarlo.</td>
+  </tr>
+  <tr>
+    <td>D41</td><td>El saldo se guarda <em>ademas</em> del libro mayor</td>
+    <td>Denormalizacion deliberada: derivarlo sumando todos los movimientos crece sin limite. El riesgo se controla con la transaccion y con <code>verificar_saldos()</code>.</td>
+  </tr>
+  <tr>
+    <td>D45</td><td>El tope de dias de consulta vive en el contrato</td>
+    <td>Estaba escrito dos veces con semanticas distintas: el servicio medía tiempo transcurrido y el motor días de calendario. Pedir "31 dias" pasaba uno y lo rechazaba el otro.</td>
+  </tr>
+  <tr>
+    <td>D56</td><td>Las fechas de la semilla son relativas</td>
+    <td>Con fechas fijas los datos envejecen: ocho meses despues, <em>todos</em> los envios figuraban cientos de dias tarde y "envios demorados" dejaba de distinguir nada.</td>
+  </tr>
+</table>
+
+<h3>Sobre seguridad</h3>
+<table>
+  <tr><th>#</th><th>Decision</th><th>Por que</th></tr>
+  <tr>
+    <td>D27</td><td>Contrasenas con PBKDF2-HMAC-SHA256</td>
+    <td>200.000 iteraciones y salt de 16 bytes por usuario. <strong>Por que no SHA256 pelado:</strong> un hash comun esta hecho para ser rapido, que es justo lo que no se quiere. <strong>Por que el salt:</strong> sin el, dos usuarios con la misma clave tienen el mismo hash y una tabla precalculada los rompe a los dos. Se compara con <code>hmac.compare_digest</code> para que tarde siempre lo mismo y no se pueda adivinar byte a byte.</td>
+  </tr>
+  <tr>
+    <td>D42</td><td>La autenticacion es la puerta</td>
+    <td>La aplicacion no arma ningun menu hasta que alguien se autentica. Tres intentos y corta. Antes habia usuarios, roles y hashes... y nada de eso protegia nada: <code>nivel_permisos</code> no se leia en ningun lado.</td>
+  </tr>
+  <tr>
+    <td>D49</td><td>El filtro de permisos se reusa en los submenus</td>
+    <td>Una sola funcion decide que ve cada rol, en los dos niveles del menu. No hay <code>if</code> de permisos repartidos.</td>
+  </tr>
+</table>
+
+<h3>Sobre las bases NoSQL</h3>
+<table>
+  <tr><th>#</th><th>Decision</th><th>Por que</th></tr>
+  <tr>
+    <td>D12</td><td>El incidente guarda una foto del envio</td>
+    <td>Permite el ranking de rutas con una sola agregacion en Mongo. No se actualiza si despues cambia la ruta: registra las circunstancias de cuando ocurrio.</td>
+  </tr>
+  <tr>
+    <td>D9</td><td><code>Tramo</code> es un <em>nodo</em> en Neo4j, no una relacion</td>
+    <td>Un tramo conecta cuatro entidades (envio, dos ubicaciones y un vehiculo) y una relacion de grafo solo une dos.</td>
+  </tr>
+  <tr>
+    <td>D13</td><td>El heartbeat usa un sorted set</td>
+    <td>El score es la marca de tiempo del ultimo reporte: "cuanto hace que no reporta" es una lectura.</td>
+  </tr>
+  <tr>
+    <td>D44</td><td>La cache nunca rompe el reporte</td>
+    <td>Si Redis falla al leer o al escribir, se consulta PostgreSQL igual. Un Redis caido hace la aplicacion mas lenta, no la rompe.</td>
+  </tr>
+  <tr>
+    <td>D57</td><td>Los mensajes van referenciados, no embebidos</td>
+    <td>Crecen sin limite y embeberlos pasaria los 16 MB por documento.</td>
+  </tr>
+</table>
+
+<h2 class="salto">8. Como se corre el sistema</h2>
+
+<h3>Los comandos, en orden</h3>
+<pre># 1. Levantar las cinco bases
+docker compose up -d
+
+# 2. Verificar que las cinco respondan (muestra la version de cada una)
+python scripts/chequear_conexiones.py
+
+# 3. Aplicar el esquema de PostgreSQL y los datos de prueba
+python scripts/aplicar_esquema.py
+
+# 4. Arrancar la aplicacion
+python -m logistica</pre>
+
+<div class="nota">
+  <p>
+    <span class="etiqueta">Por que el paso 2 muestra las versiones:</span> porque un
+    contenedor puede estar "Up" y <em>no</em> ser el que recibe las conexiones. Nos paso:
+    el contenedor tenia MongoDB 7.0 pero la aplicacion hablaba con un MongoDB 8.3
+    instalado en Windows que ocupaba el mismo puerto. Ver la version lo delata.
+  </p>
+</div>
+
+<h3>Usuarios de prueba</h3>
+<p>La contrasena de los cuatro es <code>demo1234</code>.</p>
+<table>
+  <tr><th>Email</th><th>Rol</th><th>Nivel</th><th>Que ve</th></tr>
+  <tr><td><code>admin@logistica.com</code></td><td>ADMINISTRADOR</td><td>100</td><td>16 de 16 secciones</td></tr>
+  <tr><td><code>carlos.ops@logistica.com</code></td><td>OPERADOR</td><td>60</td><td>14 de 16</td></tr>
+  <tr><td><code>lucia.audit@logistica.com</code></td><td>AUDITOR</td><td>30</td><td>9 de 16, solo lectura</td></tr>
+  <tr><td><code>mariana@agroglobal.com</code></td><td>CLIENTE</td><td>10</td><td>Ninguna</td></tr>
+</table>
+<div class="clave">
+  <p>
+    <span class="etiqueta">Para mostrar en vivo:</span> entrar con Mariana. Autentica
+    bien y la aplicacion le dice que su rol no tiene acceso a ninguna seccion. Es la
+    prueba de que el control existe, no una pantalla que dice que existe. La consola
+    es una herramienta interna: un cliente no opera el back-office.
+  </p>
+</div>
+
+<h3>Procesos que corren aparte</h3>
+<pre># Simulador IoT: genera lecturas y detecta anomalias al escribirlas
+python -m logistica.jobs.simulador_iot --ciclos 5 --intervalo 1
+
+# Planificador: sincronizacion, consistencia, facturacion automatica,
+# cierre mensual, verificacion de saldos y deteccion de sensores inactivos
+python -m logistica.jobs.planificador</pre>
+
+<h2 class="salto">9. Que hay dentro de la aplicacion</h2>
+
+<p>
+  <strong>16 secciones</strong>, con <strong>115 opciones</strong> en total. El menu se recorta
+  segun el rol de quien entro.
+</p>
+
+<table>
+  <tr><th>Seccion</th><th>Lo que hace</th><th>Motores</th></tr>
+  <tr><td>Clientes</td><td>ABM completo, baja logica</td><td>PostgreSQL + Outbox</td></tr>
+  <tr><td>Contenedores</td><td>ABM y cambio de estado administrativo</td><td>PostgreSQL + Outbox</td></tr>
+  <tr><td>Proveedores</td><td>ABM completo</td><td>PostgreSQL</td></tr>
+  <tr><td>Operadores logisticos</td><td>ABM completo</td><td>PostgreSQL</td></tr>
+  <tr><td>Usuarios, roles y sesiones</td><td>ABM de usuarios y roles; sesiones activas</td><td>PostgreSQL + Redis</td></tr>
+  <tr><td>Envios y trayectos</td><td>Alta, tramos, estados, contenedores, trazabilidad</td><td>PostgreSQL + Cassandra</td></tr>
+  <tr><td>Facturacion y cuentas</td><td>Facturas, pagos, cierre mensual, verificacion de saldos</td><td>PostgreSQL</td></tr>
+  <tr><td>Reportes</td><td>7 reportes analiticos, con cache</td><td>PostgreSQL + Redis</td></tr>
+  <tr><td>Consultas de la red logistica</td><td>Ruta, red del cliente, movimientos de contenedor</td><td>Neo4j</td></tr>
+  <tr><td>Seguimiento GPS</td><td>Recorrido de un contenedor</td><td>Cassandra</td></tr>
+  <tr><td>Incidentes</td><td>Alta, estados, ranking de rutas, promedios</td><td>MongoDB + PostgreSQL</td></tr>
+  <tr><td>Monitoreo IoT y alertas</td><td>Sensores, lecturas, umbrales, alertas, detecciones</td><td>Los cinco</td></tr>
+  <tr><td>Prediccion de atrasos</td><td>Riesgo por envio, con motivos</td><td>PostgreSQL + MongoDB</td></tr>
+  <tr><td>Solicitudes de reportes</td><td>Pedir, generar y facturar reportes</td><td>MongoDB + PostgreSQL</td></tr>
+  <tr><td>Mensajeria con las partes</td><td>Hilos con clientes, proveedores y operadores</td><td>MongoDB + PostgreSQL</td></tr>
+  <tr><td>Sincronizacion entre motores</td><td>Outbox, consistencia, reconstruir el grafo</td><td>Los tres derivados</td></tr>
+</table>
+
+<h3>Datos concretos que sirven para la demo</h3>
+<table>
+  <tr><th>Para mostrar</th><th>Usar</th><th>Da</th></tr>
+  <tr><td>Recorrido GPS</td><td>Contenedor <code>HLCU7654321</code></td><td>150 posiciones</td></tr>
+  <tr><td>Movimientos en el grafo</td><td><code>MSKU1234567</code> o <code>CMAU9876543</code></td><td>2 tramos</td></tr>
+  <tr><td>Envios demorados</td><td>Opcion directa</td><td>2 de 4 en curso</td></tr>
+  <tr><td>Prediccion de riesgo</td><td>Opcion directa</td><td>2 BAJO, 2 ALTO</td></tr>
+  <tr><td>Alertas abiertas</td><td>Opcion directa</td><td>91</td></tr>
+  <tr><td>Cuenta con deuda</td><td>Naviera Rio de la Plata</td><td>-12.400</td></tr>
+</table>
+
+<h2 class="salto">10. Errores reales que encontramos (y que ensenan)</h2>
+
+<p>
+  Estos casos sirven para dos cosas: entender el sistema de verdad, y tener algo
+  concreto que contar si preguntan "que les costo" o "que aprendieron".
+</p>
+
+<h3>El contenedor que estaba "Up" y no era el que respondia</h3>
+<p>
+  La aplicacion se conectaba a MongoDB y todo parecia andar, pero los datos no
+  coincidian. El contenedor Docker tenia MongoDB 7.0 y respondia un MongoDB 8.3
+  instalado en Windows que ocupaba el puerto 27017.
+</p>
+<p class="mini">
+  <strong>Leccion:</strong> que un contenedor este "Up" no significa que sea el que recibe
+  tus conexiones. Por eso el script de verificacion imprime la version.
+</p>
+
+<h3>Los umbrales que cubrian 2 de 7 tipos de contenedor</h3>
+<p>
+  La deteccion de anomalias salteaba tres de los cinco sensores <strong>en silencio</strong>,
+  porque no habia umbral configurado para su tipo de contenedor. Al completarlos,
+  una corrida identica paso de 14 a 45 alertas.
+</p>
+<p class="mini">
+  <strong>Leccion:</strong> una configuracion incompleta es peor que una ausente, porque
+  parece que esta funcionando. De ahi salio el control de "cobertura de umbrales".
+</p>
+
+<h3>Una relacion del grafo que no existia</h3>
+<p>
+  Una consulta de Neo4j buscaba una relacion <code>RECORRE</code> que ningun proyector
+  creaba. Devolvia vacio sin error. Se reescribio recorriendo las relaciones que si
+  existen.
+</p>
+<p class="mini">
+  <strong>Leccion:</strong> en un grafo, una consulta mal escrita no falla: devuelve
+  nada. Hay que verificar contra datos que uno sepa que existen.
+</p>
+
+<h3>Un metodo que no guardaba nada, en silencio</h3>
+<p>
+  El <code>guardar</code> de alertas es un <em>insert-if-not-exists</em>: si la alerta ya
+  existe, no la toca. Esta bien para que un reintento no duplique. Pero al usarlo
+  para <em>reconocer</em> una alerta, el cambio de estado no se guardaba y no avisaba.
+</p>
+<p class="mini">
+  <strong>Leccion:</strong> un metodo idempotente para crear no sirve para modificar.
+</p>
+
+<h3>Dar de baja a un usuario apretando Enter</h3>
+<p>
+  La busqueda hacia <code>texto in str(id)</code>, y <code>""</code> esta contenido en
+  cualquier cosa: con la entrada vacia se quedaba con el primero de la lista.
+  Apretar Enter por error desactivaba a alguien al azar. Lo encontro una pasada
+  completa por las 115 opciones de la aplicacion.
+</p>
+<p class="mini">
+  <strong>Leccion:</strong> los 582 tests pasaban. Ninguno probaba "que pasa si el usuario
+  aprieta Enter".
+</p>
+
+<h3>Dos modelos para la misma cosa</h3>
+<p>
+  La coleccion de solicitudes de reportes se implemento sin mirar que el modelo
+  fisico de MongoDB <em>ya la tenia disenada</em> con otro nombre y otra forma. Quedaron
+  dos disenos del mismo concepto. Se unificaron.
+</p>
+<p class="mini">
+  <strong>Leccion:</strong> el modelo fisico es parte del codigo, no documentacion. Si se
+  ignora, el validador de esquema te lo recuerda.
+</p>
+
+<h2 class="salto">11. Limitaciones conocidas</h2>
+
+<p>
+  Conviene saberlas y decirlas antes de que las encuentren. Reconocer un limite
+  con su motivo da mas confianza que fingir que no existe.
+</p>
+
+<table>
+  <tr><th>Limitacion</th><th>Por que esta, y que haria falta</th></tr>
+  <tr>
+    <td>Neo4j y Cassandra tienen consistencia eventual</td>
+    <td>El Outbox propaga despues, no al instante. Es el precio de no tener transaccion entre motores. Se mitiga con el chequeo de consistencia y la reconstruccion.</td>
+  </tr>
+  <tr>
+    <td>Marcar un reporte como facturado queda fuera de la transaccion</td>
+    <td>MongoDB y PostgreSQL no comparten transaccion. Si falla, queda la factura emitida y la solicitud en GENERADA. Por eso existe "pendientes de facturar", que encuentra justo ese caso.</td>
+  </tr>
+  <tr>
+    <td>Las contrasenas usan PBKDF2 y no argon2</td>
+    <td>Para no sumar una dependencia. En un sistema real irian argon2 o bcrypt.</td>
+  </tr>
+  <tr>
+    <td>La sesion no se renueva por actividad</td>
+    <td>Con un TTL de una hora, vence aunque el usuario este trabajando.</td>
+  </tr>
+  <tr>
+    <td>La prediccion no mira el historico de la ruta</td>
+    <td>Seria el factor mas interesante, pero con dos envios entregados el promedio no significaria nada. Es lo primero que agregariamos con datos reales.</td>
+  </tr>
+  <tr>
+    <td>La deteccion de anomalias solo evalua temperatura</td>
+    <td>El enunciado pide temperatura. Sumar humedad o vibracion es agregar una fila a una tabla del codigo.</td>
+  </tr>
+  <tr>
+    <td>Los mensajes entrantes se cargan a mano</td>
+    <td>En un sistema real llegarian por correo o API. La opcion de menu existe para poder mostrar el ida y vuelta completo.</td>
+  </tr>
+  <tr>
+    <td>Replicacion y sharding estan documentados, no activos</td>
+    <td>El Docker es de un solo nodo. Las claves de fragmentacion estan elegidas y justificadas en el modelo.</td>
+  </tr>
+</table>
+
+<h2 class="salto">12. Preguntas probables y como responderlas</h2>
+
+<h3>Sobre la eleccion de motores</h3>
+
+<h4>"Por que no hicieron todo en PostgreSQL?"</h4>
+<p>
+  Se podria, pero cada pieza estaria peor. Las lecturas de sensores crecen sin
+  limite y una tabla relacional se degrada al crecer; los umbrales y los parametros
+  de reportes cambian de forma y serian columnas casi siempre vacias o una columna
+  JSON, que es un documento disfrazado; las consultas de red serian cadenas de JOIN
+  sobre una tabla de tramos; y las sesiones necesitarian un proceso que borre las
+  vencidas, que en Redis lo hace el motor.
+</p>
+
+<h4>"Y por que no todo en MongoDB?"</h4>
+<p>
+  Por la facturacion. Emitir una factura escribe la factura, el movimiento y el
+  saldo, y las tres tienen que pasar o ninguna. Eso es una transaccion y es
+  exactamente lo que PostgreSQL garantiza.
+</p>
+
+<h4>"Que pierden por usar cinco bases?"</h4>
+<p>
+  La transaccion que abarca todo y las claves foraneas entre motores. Por eso la
+  existencia de un cliente al guardar un incidente la valida el servicio y no la
+  base, y por eso existe el Outbox.
+</p>
+
+<h3>Sobre la implementacion</h3>
+
+<h4>"Como se mantienen sincronizadas las bases?"</h4>
+<p>
+  Con el patron Outbox: el dato y el evento se escriben en una sola transaccion de
+  PostgreSQL, y un worker propaga los eventos a Neo4j y Cassandra con reintentos.
+  Los proyectores son idempotentes (<code>MERGE</code>, nunca <code>CREATE</code>), asi que
+  reintentar no duplica. Ademas hay un chequeo de consistencia y la posibilidad de
+  reconstruir el grafo entero.
+</p>
+
+<h4>"Que pasa si se cae Redis?"</h4>
+<p>
+  Depende de para que. La cache de reportes degrada a consultar PostgreSQL, asi que
+  solo se vuelve mas lento. Las sesiones si dependen de Redis: no se puede entrar.
+  Por eso, si las credenciales son correctas pero Redis no responde, la aplicacion
+  lo dice explicitamente en vez de pedir la contrasena de nuevo.
+</p>
+
+<h4>"Por que el estado de un contenedor no se puede poner a mano?"</h4>
+<p>
+  Los estados <code>ASIGNADO</code> y <code>EN_TRANSITO</code> los escribe el servicio de
+  envios junto con la fila de <code>envio_contenedor</code>, en la misma transaccion. Si
+  el ABM pudiera ponerlos, quedaria un contenedor marcado como ocupado sin ningun
+  envio que lo tenga, y la regla de "un contenedor no puede estar en dos envios
+  activos" empezaria a rechazar asignaciones validas.
+</p>
+
+<h4>"Como evitan que dos instancias corran el mismo proceso?"</h4>
+<p>
+  Con un lock en Redis (<code>SET NX EX</code>): el primero que lo toma corre, el otro
+  se saltea esa vuelta. Ademas los procesos son idempotentes: la facturacion
+  automatica consulta primero si el envio ya tiene factura. La idempotencia protege
+  de la repeticion secuencial, el lock de la concurrencia.
+</p>
+
+<h3>Sobre el modelo</h3>
+
+<h4>"Por que el incidente guarda una copia de los datos del envio?"</h4>
+<p>
+  Para que el ranking de rutas se resuelva con una sola agregacion en MongoDB, sin
+  cruzar bases. Y porque un incidente registra las circunstancias de <em>cuando
+  ocurrio</em>: si despues cambia la ruta del envio, el incidente tiene que seguir
+  diciendo donde estaba en ese momento.
+</p>
+
+<h4>"Por que el tramo es un nodo y no una relacion en Neo4j?"</h4>
+<p>
+  Porque conecta cuatro entidades: el envio, la ubicacion de origen, la de destino
+  y el vehiculo. Una relacion de grafo une exactamente dos nodos.
+</p>
+
+<h4>"Por que repiten datos entre tablas de Cassandra?"</h4>
+<p>
+  Porque Cassandra se disena por consulta: primero se escribe la pregunta y despues
+  la tabla que la responde. No tiene JOIN, asi que la unica forma de responder dos
+  preguntas distintas sobre el mismo dato es tenerlo guardado de dos formas.
+</p>
+
+<div class="clave">
+  <p>
+    <span class="etiqueta">Si preguntan algo que no sabes:</span> conviene decir donde
+    estaria la respuesta ("eso lo resuelve el servicio de X, que cruza tal cosa con
+    tal otra") antes que inventar. Mostrar que entendes la estructura vale mas que
+    acertar un detalle.
+  </p>
+</div>
+
+<h3>Si piden una modificacion o una consulta en vivo</h3>
+<p>
+  El sistema esta armado para que agregar cosas sea corto, y conviene saber donde
+  toca cada una:
+</p>
+<table>
+  <tr><th>Si piden...</th><th>Donde se toca</th></tr>
+  <tr><td>Un reporte nuevo sobre envios</td><td><code>ReporteEnvioRepository</code> (la consulta) + <code>ReporteService</code> + una opcion en <code>menu_reportes</code></td></tr>
+  <tr><td>Un campo nuevo en una entidad</td><td>La entidad en <code>domain/</code>, la tabla, el <code>_a_entidad</code> del repositorio y el <code>INSERT</code>/<code>UPDATE</code></td></tr>
+  <tr><td>Una consulta nueva al grafo</td><td><code>Neo4jConsultaRepository</code> (el Cypher) + <code>ConsultaGrafoService</code> + <code>menu_grafo</code></td></tr>
+  <tr><td>Un tipo de alerta nuevo</td><td>Una fila en la tabla <code>_MEDICIONES</code> de la deteccion de anomalias</td></tr>
+  <tr><td>Un estado nuevo en el ciclo de un envio</td><td>El enum y el mapa de transiciones en <code>domain/envio.py</code>, y el <code>CHECK</code> de la tabla</td></tr>
+  <tr><td>Un reporte facturable nuevo</td><td>Una entrada en el <code>CATALOGO</code> y una rama en <code>_calcular()</code></td></tr>
+</table>
+
+<div class="pie">
+  Documento generado para el grupo del TP de Persistencia Poliglota &middot;
+  Ingenieria de Datos II, UADE &middot; 2026<br>
+  El detalle completo de las 58 decisiones esta en <code>docs/decisiones.md</code>.
+</div>
+
+</body>
+</html>
