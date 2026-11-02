@@ -2,7 +2,8 @@
 
 Responsable: UMBI
 
-Los diagramas representan los modelos iniciales propuestos.
+Los diagramas representan los modelos implementados. Las decisiones que los
+justifican están en `docs/decisiones.md` (D9, D11, D13, D14, D37, D42, D43 y D44).
 
 ## Neo4j: actores y envíos
 
@@ -37,41 +38,89 @@ Los contenedores se relacionan con los tramos a través del envío.
 Esta relación no confirma que el contenedor haya recorrido
 efectivamente cada tramo.
 
-## Redis: ciclo de una sesión
+## Redis: ciclo de una sesión — D42
 
 ```mermaid
 flowchart TD
-    I[Inicio de sesión válido] --> H["Crear Hash sesion:UUID"]
-    H --> T[Asignar TTL]
-    T --> A[Sesión activa]
-    A --> C[Cierre de sesión]
-    A --> V[Vencimiento del TTL]
-    C --> D[Eliminar clave]
-    V --> D
+    L[Usuario y contraseña] --> V{¿Credenciales válidas?}
+    V -->|No, menos de 3 intentos| L
+    V -->|No, tercer intento| X[La aplicación termina]
+    V -->|Sí| H["HSET sesion:UUID + EXPIRE en el mismo pipeline"]
+    H --> A[Sesión activa: el rol recorta el menú]
+    A --> C[El usuario sale del menú]
+    A --> T[Vence el TTL de 1 hora]
+    C --> D["DEL sesion:UUID (en el finally)"]
+    T --> R[Redis borra la clave solo]
 ```
 
-El Hash contiene `usuario_id`, `fecha_inicio`, `fecha_fin`
-y `estado`. El UUID de la clave identifica la sesión.
+El Hash contiene `usuario_id`, `fecha_inicio`, `fecha_fin` y `estado`.
+El UUID de la clave identifica la sesión.
 
-La duración del TTL queda pendiente de acordar con el grupo.
+La sesión dura una hora. El TTL no se pasa aparte: se calcula a partir de
+`fecha_fin`, redondeando hacia arriba. El `HSET` y el `EXPIRE` van en un
+pipeline transaccional para que nunca quede una sesión sin vencimiento.
+Las sesiones activas se listan con `SCAN`, no con `KEYS`.
 
-## Redis: actividad de sensores
+## Redis: actividad de sensores — D13 y D43
 
 ```mermaid
 flowchart TD
-    S[Señal recibida] --> Z["Actualizar score en sensores:heartbeat"]
-    J[Proceso periódico] --> P["Consultar sensores monitoreados en PostgreSQL"]
-    P --> C[Consultar últimos reportes en Redis]
-    Z --> C
-    C --> R{¿Tiene reporte registrado?}
-    R -->|Sí| E[Evaluar atraso según intervalo del sensor]
-    R -->|No| I[Evaluar período inicial o información desconocida]
-    E --> D[Determinar actividad o inactividad]
+    S[El simulador guarda las lecturas en Cassandra] --> Z["ZADD GT sensores:heartbeat"]
+    J[Planificador cada 30 s, con lock de 120 s] --> P["Sensores ACTIVOS en PostgreSQL"]
+    P --> C["ZSCORE sensores:heartbeat por sensor"]
+    Z -.-> C
+    C --> R{¿Tiene heartbeat?}
+    R -->|No| SD[SIN_DATOS]
+    R -->|Sí| F{¿Marca de tiempo válida?}
+    F -->|No, futura| RI[RELOJ_INVALIDO]
+    F -->|Sí| E{¿Tiempo sin reportar mayor que su intervalo?}
+    E -->|No| AC[ACTIVO]
+    E -->|Sí| IN[INACTIVO]
 ```
 
-El score conserva el timestamp de recepción del último reporte.
-El Sorted Set no tiene TTL.
+El score es el timestamp Unix del último reporte. `ZADD` con `GT` evita que una
+señal vieja pise una más nueva. El Sorted Set no tiene TTL.
 
-La detección considera el intervalo configurado de cada sensor.
-Los errores de Redis se tratan como fallas de consulta,
-no como evidencia de inactividad.
+El heartbeat se registra después de guardar las lecturas en Cassandra, para que
+una señal nunca afirme un dato que no se escribió. Cada sensor se compara contra
+su propio `intervalo_reporte_segundos`.
+
+`SIN_DATOS` no es `INACTIVO`: la falta de heartbeat no distingue un sensor nuevo
+de una pérdida de datos de Redis. Un error de Redis se informa como falla del
+proceso, nunca como inactividad. El resultado se registra en el log; el proceso
+no cambia el estado del sensor en PostgreSQL.
+
+## Redis: caché de reportes — D44
+
+```mermaid
+flowchart TD
+    P[Se pide un reporte] --> K["Clave cache:reportes:v1:nombre:SHA-256 de los parámetros"]
+    K --> G{¿GET devuelve un valor válido?}
+    G -->|Sí| D[Se reconstruyen los objetos del dominio]
+    G -->|No existe, vencido, inválido o Redis falla| Q[Consulta de agregación en PostgreSQL]
+    Q --> W["SET con EX 60"]
+    W -->|Aunque falle la escritura| O[Se devuelve el reporte]
+    D --> O
+```
+
+Los siete reportes de `ReporteService` se cachean 60 segundos. La caché es un
+atajo, nunca una dependencia: si Redis falla, el reporte sale igual desde
+PostgreSQL. Durante esos 60 segundos puede mostrar datos anteriores al último
+cambio, porque no hay invalidación inmediata. Facturación, estados de envío y
+saldos no se cachean.
+
+## Redis: locks de procesos periódicos — D14
+
+```mermaid
+flowchart TD
+    J[El planificador dispara un proceso] --> S["SET lock:proceso:nombre token NX EX segundos"]
+    S -->|Otra instancia lo tiene| N[Se saltea esta ejecución]
+    S -->|Se crea la clave| T[Corre el proceso]
+    T --> L["Script Lua: borra la clave solo si el token es propio"]
+    T -->|Si el proceso muere| V[El EX libera el lock solo]
+```
+
+Lo usan la sincronización del Outbox, el chequeo de consistencia, la facturación
+automática, el cierre mensual, la verificación de saldos y la detección de
+sensores inactivos. El lock reduce las ejecuciones simultáneas, pero no reemplaza
+la idempotencia en PostgreSQL.
