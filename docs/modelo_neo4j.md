@@ -4,7 +4,7 @@ Responsable: UMBI
 
 ## Objetivo
 
-Neo4j se utilizará para consultar las relaciones de la red logística:
+Neo4j se utiliza para consultar las relaciones de la red logística:
 
 - Recorridos de los envíos.
 - Conexiones entre clientes, operadores y envíos.
@@ -19,11 +19,12 @@ Esto permitirá identificar la misma entidad en ambos motores.
 
 ## Estado del modelo
 
-Este documento es una propuesta inicial.
-Las relaciones y propiedades deberán coordinarse con el
-modelo de PostgreSQL y el proceso de sincronización del grupo.
+El modelo está implementado. El grafo lo alimenta el proyector de
+`sync/proyector_neo4j.py` a partir del Outbox de PostgreSQL, y las
+consultas de lectura están en `infrastructure/neo4j/consulta_repository.py`
+(D37).
 
-## Nodos propuestos
+## Nodos
 
 | Etiqueta | Representa |
 |---|---|
@@ -38,10 +39,9 @@ modelo de PostgreSQL y el proceso de sincronización del grupo.
 Cada nodo tendrá una propiedad `id` con el UUID de la entidad
 correspondiente en PostgreSQL.
 
-Las propiedades adicionales se definirán según las consultas
-necesarias y el modelo acordado con el grupo.
+El nodo `Tramo` lleva además `orden`, `medio_transporte` y `costo` (D9).
 
-## Relaciones propuestas
+## Relaciones
 
 | Nodo de origen | Relación | Nodo de destino |
 |---|---|---|
@@ -50,9 +50,6 @@ necesarias y el modelo acordado con el grupo.
 | Envio | INCLUYE | Contenedor |
 | Envio | ORIGEN | Ubicacion |
 | Envio | DESTINO | Ubicacion |
-
-Estas relaciones son una propuesta que deberá validarse
-con el modelo de PostgreSQL.
 
 Un envío puede incluir varios contenedores.
 Un contenedor puede participar en distintos envíos a lo
@@ -63,7 +60,7 @@ conservar su orden y vincular los vehículos utilizados.
 
 ## Tramos del recorrido
 
-Se propone agregar un nodo con etiqueta `Tramo`.
+El tramo es un nodo con etiqueta `Tramo`, no una relación (D9).
 
 Cada tramo tendrá:
 - `id`: UUID del tramo en PostgreSQL.
@@ -78,11 +75,11 @@ Cada tramo tendrá:
 | Tramo | HASTA | Ubicacion |
 | Tramo | UTILIZA | Vehiculo |
 
-El recorrido de un envío se reconstruirá consultando sus
+El recorrido de un envío se reconstruye consultando sus
 tramos y ordenándolos por la propiedad `orden`.
 
-Las fechas previstas y reales, y la asignación de vehículos,
-se coordinarán con el modelo de PostgreSQL.
+No existe la relación `(:Contenedor)-[:RECORRE]->(:Tramo)` del modelo
+inicial: se descartó en la corrección del 27/10 (D37).
 
 ## Movimientos de contenedores
 
@@ -94,7 +91,7 @@ Esta relación permite consultar los tramos asociados al envío
 en el que está incluido un contenedor. Por sí sola, no confirma
 que el contenedor haya recorrido efectivamente cada tramo.
 
-## Reglas de integridad propuestas
+## Reglas de integridad
 
 - La propiedad `id` será obligatoria en todos los nodos.
 - El `id` será único dentro de cada etiqueta.
@@ -106,7 +103,7 @@ que el contenedor haya recorrido efectivamente cada tramo.
 La unicidad de `id` se implementará mediante restricciones
 de Neo4j, que también permitirán buscar los nodos por su UUID.
 
-Las demás reglas deberán validarse en la aplicación y en
+Las demás reglas se validan en la aplicación y en
 el proceso de sincronización.
 
 ## Relación entre operadores y envíos — D11
