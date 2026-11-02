@@ -63,7 +63,7 @@ def construir(servicio: ConsultaGrafoService) -> None:
         consola.tabla(
             ["ENVIO", "ESTADO", "OPERADOR"],
             [
-                [r.envio_id, _texto(r.estado_envio), _texto(r.operador)]
+                [_texto(r.envio_id), _texto(r.estado_envio), _texto(r.operador)]
                 for r in relaciones
             ],
         )

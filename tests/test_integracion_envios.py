@@ -178,8 +178,13 @@ def test_envios_por_cliente_trae_la_razon_social(contenedor):
 
 
 def test_envios_demorados(contenedor):
-    """El envio 4 de los datos semilla esta demorado a proposito."""
-    demorados = contenedor.envios.listar_demorados(datetime(2026, 3, 1, tzinfo=timezone.utc))
+    """El envio 4 de los datos semilla esta demorado a proposito.
+
+    Se consulta con la hora real y no con una fecha fija: desde que las fechas
+    de la semilla son relativas a CURRENT_TIMESTAMP (D56), "hoy" siempre cae en
+    el mismo punto del timeline.
+    """
+    demorados = contenedor.envios.listar_demorados(datetime.now(timezone.utc))
     assert UUID("a0000000-0000-0000-0000-000000000004") in [e.id for e in demorados]
     assert all(e.estado not in (EstadoEnvio.ENTREGADO, EstadoEnvio.CANCELADO) for e in demorados)
 

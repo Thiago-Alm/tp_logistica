@@ -8,19 +8,32 @@ Redis.
 """
 import logging
 import sys
-from collections.abc import Callable
 from getpass import getpass
 
 from logistica.cli import (
     consola,
     menu_clientes,
+    menu_contenedores,
     menu_envios,
     menu_facturacion,
     menu_gps,
     menu_grafo,
+    menu_incidentes,
+    menu_mensajeria,
+    menu_monitoreo,
+    menu_partes,
+    menu_prediccion,
     menu_reportes,
     menu_sincronizacion,
+    menu_solicitudes,
     menu_usuarios,
+)
+from logistica.cli.permisos import (
+    NIVEL_ADMINISTRADOR,
+    NIVEL_AUDITOR,
+    NIVEL_OPERADOR,
+    Seccion,
+    opciones_para,
 )
 from logistica.container import Contenedor
 from logistica.domain.rol import Rol
@@ -31,12 +44,6 @@ from logistica.exceptions import ErrorDePersistencia, LogisticaError
 log = logging.getLogger(__name__)
 
 INTENTOS_MAXIMOS = 3
-
-# Nivel de permisos minimo de cada seccion. Son los niveles de la tabla `rol`:
-# ADMINISTRADOR 100, OPERADOR 60, AUDITOR 30, CLIENTE 10.
-NIVEL_ADMINISTRADOR = 100
-NIVEL_OPERADOR = 60
-NIVEL_AUDITOR = 30
 
 
 def _comprobar_base(contenedor: Contenedor) -> bool:
@@ -97,14 +104,42 @@ def _autenticar(contenedor: Contenedor) -> tuple[Usuario, Rol, Sesion] | None:
     return usuario, rol, sesion
 
 
-def _secciones(contenedor: Contenedor) -> list[tuple[int, str, Callable[[], None]]]:
-    """Cada seccion declara el nivel de permisos que exige. El control esta en
-    un solo lugar: no hay un `if` de permisos repartido por los menus."""
+def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
+    """Cada seccion declara el nivel de permisos que exige.
+
+    `nivel` se recibe para pasarlo a los submenus que filtran alguna de sus
+    propias opciones (el de monitoreo esconde la configuracion de umbrales).
+    Asi el criterio sigue siendo uno solo, el de `permisos.opciones_para`.
+    """
     return [
         (
             NIVEL_OPERADOR,
             "Clientes",
             lambda: menu_clientes.construir(contenedor.clientes),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Contenedores",
+            lambda: menu_contenedores.construir(
+                contenedor.contenedores_service, rol_nivel=nivel
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Proveedores",
+            lambda: menu_partes.construir(
+                contenedor.proveedores_service,
+                "Proveedores",
+                con_servicio=True,
+                rol_nivel=nivel,
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Operadores logisticos",
+            lambda: menu_partes.construir(
+                contenedor.operadores_service, "Operadores logisticos", rol_nivel=nivel
+            ),
         ),
         (
             NIVEL_ADMINISTRADOR,
@@ -122,12 +157,18 @@ def _secciones(contenedor: Contenedor) -> list[tuple[int, str, Callable[[], None
                 contenedor.envios,
                 contenedor.clientes,
                 contenedor.trazabilidad,
+                contenedor.contenedores_service,
             ),
         ),
         (
             NIVEL_OPERADOR,
             "Facturacion y cuentas corrientes",
-            lambda: menu_facturacion.construir(contenedor.facturacion, contenedor.clientes),
+            lambda: menu_facturacion.construir(
+                contenedor.facturacion,
+                contenedor.clientes,
+                contenedor.proveedores_service,
+                contenedor.operadores_service,
+            ),
         ),
         (
             NIVEL_AUDITOR,
@@ -144,6 +185,53 @@ def _secciones(contenedor: Contenedor) -> list[tuple[int, str, Callable[[], None
             "Seguimiento GPS",
             lambda: menu_gps.construir(contenedor.gps),
         ),
+        # Estas dos entran con nivel de auditor porque sus consultas son
+        # material de auditoria; adentro, cada opcion declara su propio nivel y
+        # las filtra el mismo `opciones_para`. Un auditor ve las de lectura, un
+        # operador agrega las de operacion y un administrador la configuracion.
+        (
+            NIVEL_AUDITOR,
+            "Mensajeria con las partes",
+            lambda: menu_mensajeria.construir(
+                contenedor.mensajeria,
+                contenedor.clientes,
+                contenedor.proveedores_service,
+                contenedor.operadores_service,
+                contenedor.usuarios,
+                rol_nivel=nivel,
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Prediccion de atrasos y riesgos",
+            lambda: menu_prediccion.construir(
+                contenedor.predicciones, contenedor.clientes, rol_nivel=nivel
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Solicitudes de reportes (facturables)",
+            lambda: menu_solicitudes.construir(
+                contenedor.solicitudes,
+                contenedor.clientes,
+                contenedor.proveedores_service,
+                contenedor.operadores_service,
+                contenedor.usuarios,
+                rol_nivel=nivel,
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Incidentes",
+            lambda: menu_incidentes.construir(
+                contenedor.incidentes_service, rol_nivel=nivel
+            ),
+        ),
+        (
+            NIVEL_AUDITOR,
+            "Monitoreo IoT y alertas",
+            lambda: menu_monitoreo.construir(contenedor.monitoreo, rol_nivel=nivel),
+        ),
         (
             NIVEL_ADMINISTRADOR,
             "Sincronizacion entre motores",
@@ -153,18 +241,6 @@ def _secciones(contenedor: Contenedor) -> list[tuple[int, str, Callable[[], None
             ),
         ),
     ]
-
-
-def _opciones_para(
-    nivel: int, secciones: list[tuple[int, str, Callable[[], None]]]
-) -> dict[str, tuple[str, Callable[[], None]]]:
-    """Deja solo las secciones que el nivel alcanza y las renumera desde 1.
-
-    Las secciones que no alcanza no se muestran: si figuraran deshabilitadas,
-    le estarian contando a cualquiera que entre que existen y que hay.
-    """
-    permitidas = [(etiqueta, accion) for minimo, etiqueta, accion in secciones if nivel >= minimo]
-    return {str(i): entrada for i, entrada in enumerate(permitidas, start=1)}
 
 
 def main() -> int:
@@ -185,8 +261,8 @@ def main() -> int:
         return 1
     _, rol, sesion = credenciales
 
-    secciones = _secciones(contenedor)
-    opciones = _opciones_para(rol.nivel_permisos, secciones)
+    secciones = _secciones(contenedor, rol.nivel_permisos)
+    opciones = opciones_para(rol.nivel_permisos, secciones)
     if not opciones:
         consola.error(
             f"El rol {rol.descripcion} (nivel {rol.nivel_permisos}) no tiene acceso a "

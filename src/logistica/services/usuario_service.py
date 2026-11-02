@@ -130,3 +130,110 @@ class UsuarioService:
         if rol is None:
             raise NoEncontrado(f"No existe el rol {rol_id}")
         return rol
+
+    def modificar(
+        self,
+        id: UUID,
+        nombre: str | None = None,
+        apellido: str | None = None,
+        email: str | None = None,
+        rol_id: UUID | None = None,
+    ) -> Usuario:
+        """Solo cambia lo que viene con valor.
+
+        La contrasena NO se toca aca: tiene su propio metodo, porque cambiarla
+        exige el largo minimo y el hasheo, y mezclarla con los datos de contacto
+        haria facil pisarla sin querer.
+        """
+        with self._uow as uow:
+            usuario = uow.usuarios.obtener(id)
+            if usuario is None:
+                raise NoEncontrado(f"No existe el usuario {id}")
+            if email is not None and email != usuario.email:
+                otro = uow.usuarios.obtener_por_email(email)
+                if otro is not None and otro.id != id:
+                    raise ConflictoDeDatos(f"Ya existe un usuario con el email {email}")
+            if rol_id is not None and uow.roles.obtener(rol_id) is None:
+                raise ValidacionError(f"No existe el rol {rol_id}")
+
+            for campo, valor in (
+                ("nombre", nombre),
+                ("apellido", apellido),
+                ("email", email),
+                ("rol_id", rol_id),
+            ):
+                if valor is not None:
+                    setattr(usuario, campo, valor)
+            # Un setattr se saltea __post_init__: hay que revalidar entero.
+            usuario.validar()
+            uow.usuarios.actualizar(usuario)
+            uow.commit()
+        log.info("Usuario modificado: %s (%s)", usuario.email, usuario.id)
+        return usuario
+
+    def reactivar(self, id: UUID) -> Usuario:
+        """Deshace una baja logica (D26)."""
+        with self._uow as uow:
+            usuario = uow.usuarios.obtener(id)
+            if usuario is None:
+                raise NoEncontrado(f"No existe el usuario {id}")
+            usuario.estado = EstadoUsuario.ACTIVO
+            uow.usuarios.actualizar(usuario)
+            uow.commit()
+        return usuario
+
+    # --- Roles ---------------------------------------------------------------
+
+    def alta_rol(self, descripcion: str, nivel_permisos: int) -> Rol:
+        """El nivel de permisos es lo que filtra el menu (D42), asi que dar de
+        alta un rol con nivel 100 es dar acceso total: la opcion es de
+        administrador."""
+        rol = Rol(
+            id=uuid4(),
+            descripcion=descripcion.strip().upper(),
+            nivel_permisos=nivel_permisos,
+        )
+        with self._uow as uow:
+            if uow.roles.obtener_por_descripcion(rol.descripcion) is not None:
+                raise ConflictoDeDatos(f"Ya existe el rol {rol.descripcion}")
+            uow.roles.guardar(rol)
+            uow.commit()
+        log.info("Rol dado de alta: %s (nivel %s)", rol.descripcion, rol.nivel_permisos)
+        return rol
+
+    def modificar_rol(
+        self,
+        id: UUID,
+        descripcion: str | None = None,
+        nivel_permisos: int | None = None,
+    ) -> Rol:
+        """Cambiar el nivel de un rol cambia lo que ven TODOS sus usuarios en el
+        menu, no solo uno: por eso queda registrado en el log."""
+        with self._uow as uow:
+            rol = uow.roles.obtener(id)
+            if rol is None:
+                raise NoEncontrado(f"No existe el rol {id}")
+            anterior = rol.nivel_permisos
+            if descripcion is not None:
+                nueva = descripcion.strip().upper()
+                otro = uow.roles.obtener_por_descripcion(nueva)
+                if otro is not None and otro.id != id:
+                    raise ConflictoDeDatos(f"Ya existe el rol {nueva}")
+                rol.descripcion = nueva
+            if nivel_permisos is not None:
+                rol.nivel_permisos = nivel_permisos
+            rol.validar()
+            uow.roles.actualizar(rol)
+            uow.commit()
+        if nivel_permisos is not None and nivel_permisos != anterior:
+            log.warning(
+                "El rol %s paso de nivel %s a %s: cambia el menu de todos sus usuarios",
+                rol.descripcion, anterior, nivel_permisos,
+            )
+        return rol
+
+    def contar_usuarios_por_rol(self, rol_id: UUID) -> int:
+        """Cuantos usuarios tiene un rol. Sirve para avisar antes de cambiarle
+        el nivel a cuanta gente le va a cambiar el menu."""
+        with self._uow as uow:
+            return sum(1 for u in uow.usuarios.listar() if u.rol_id == rol_id)

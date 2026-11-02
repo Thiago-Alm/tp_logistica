@@ -61,6 +61,11 @@ class ProyectorCassandra(Proyector):
         """
         if evento.agregado_tipo is not TipoAgregado.ENVIO:
             return False
+        # CONTENEDOR_DESASIGNADO queda afuera a proposito: la traza registra
+        # el recorrido del envio (carga iniciada, en transito, en puerto,
+        # entregado), y sacar un contenedor es una correccion administrativa,
+        # no un movimiento. En Neo4j si se proyecta, porque ahi la relacion
+        # INCLUYE la recorren las consultas de D37 y quedaria mintiendo.
         return evento.evento_tipo in (
             TipoEvento.CREADO,
             TipoEvento.ESTADO_CAMBIADO,

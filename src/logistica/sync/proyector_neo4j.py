@@ -66,6 +66,13 @@ MERGE (co:Contenedor {id: $contenedor_id})
 MERGE (e)-[:INCLUYE]->(co)
 """
 
+# Borrar es idempotente igual que MERGE: si la relacion ya no esta, el MATCH no
+# encuentra nada y la consulta no hace nada. Reintentar no rompe (D35).
+CONTENEDOR_DESASIGNADO = """
+MATCH (e:Envio {id: $envio_id})-[r:INCLUYE]->(co:Contenedor {id: $contenedor_id})
+DELETE r
+"""
+
 # Tramo es NODO y no relacion (D9): para poder colgar de el la relacion
 # Contenedor-RECORRE->Tramo, que una relacion no puede sostener.
 TRAMO = """
@@ -119,6 +126,7 @@ PARAMETROS = {
             "fecha_creacion"),
     ENVIO_ESTADO: ("id", "estado", "fecha_llegada_real"),
     CONTENEDOR_ASIGNADO: ("envio_id", "contenedor_id"),
+    CONTENEDOR_DESASIGNADO: ("envio_id", "contenedor_id"),
     TRAMO: ("id", "envio_id", "vehiculo_id", "origen_id", "destino_id", "orden",
             "medio_transporte", "costo"),
     CONTENEDOR: ("id", "codigo_iso", "tipo", "estado"),
@@ -176,6 +184,8 @@ class ProyectorNeo4j(Proyector):
                 return ENVIO_ESTADO
             if accion is TipoEvento.CONTENEDOR_ASIGNADO:
                 return CONTENEDOR_ASIGNADO
+            if accion is TipoEvento.CONTENEDOR_DESASIGNADO:
+                return CONTENEDOR_DESASIGNADO
             return None
 
         if tipo is TipoAgregado.TRAMO and accion is TipoEvento.CREADO:

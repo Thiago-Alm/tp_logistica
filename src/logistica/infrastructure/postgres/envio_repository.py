@@ -62,6 +62,15 @@ class PostgresEnvioRepository(EnvioRepository):
         )
 
     @traducir_errores
+    def desasociar_contenedor(self, envio_id: UUID, contenedor_id: UUID) -> bool:
+        resultado = self._conexion.execute(
+            """delete from envio_contenedor
+               where envio_id = %s and contenedor_id = %s""",
+            (envio_id, contenedor_id),
+        )
+        return resultado.rowcount > 0
+
+    @traducir_errores
     def listar_contenedores(self, envio_id: UUID) -> list[UUID]:
         filas = self._conexion.execute(
             """select contenedor_id from envio_contenedor

@@ -29,8 +29,9 @@ _CAMPO_DE_AGRUPACION = {
     AgrupacionIncidentes.PAIS_ORIGEN: "$contexto_envio.pais_origen",
     AgrupacionIncidentes.PAIS_DESTINO: "$contexto_envio.pais_destino",
     AgrupacionIncidentes.CLIENTE: "$contexto_envio.cliente_id",
-    AgrupacionIncidentes.ESTADO: "$estado",
+    AgrupacionIncidentes.ESTADO_INCIDENTE: "$estado",
     AgrupacionIncidentes.RUTA: "$contexto_envio.ruta",
+    AgrupacionIncidentes.ENVIO: "$envio_id",
 }
 
 

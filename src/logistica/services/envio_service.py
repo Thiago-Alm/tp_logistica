@@ -198,6 +198,55 @@ class EnvioService:
         log.info("Contenedor %s asignado al envio %s", contenedor_id, envio_id)
         return contenedor
 
+    def desasignar_contenedor(self, envio_id: UUID, contenedor_id: UUID) -> Contenedor:
+        """Saca un contenedor de un envio y lo devuelve a DISPONIBLE.
+
+        Solo se puede mientras el envio no salio: una vez EN_TRANSITO o
+        ENTREGADO, lo que viajo ya viajo y sacarlo seria falsear el historico.
+        Para corregir un envio en curso esta el cambio de estado a CANCELADO.
+        """
+        with self._uow as uow:
+            envio = uow.envios.obtener(envio_id)
+            if envio is None:
+                raise NoEncontrado(f"No existe el envio {envio_id}")
+            if envio.estado not in (EstadoEnvio.CREADO, EstadoEnvio.CANCELADO):
+                raise ConflictoDeDatos(
+                    f"No se puede sacar un contenedor de un envio "
+                    f"{envio.estado.value}"
+                )
+            contenedor = uow.contenedores.obtener(contenedor_id)
+            if contenedor is None:
+                raise NoEncontrado(f"No existe el contenedor {contenedor_id}")
+            if not uow.envios.desasociar_contenedor(envio_id, contenedor_id):
+                raise NoEncontrado(
+                    f"El contenedor {contenedor.codigo_iso} no esta asignado a "
+                    f"ese envio"
+                )
+            # Solo vuelve a DISPONIBLE si estaba ocupado por este envio. Un
+            # contenedor EN_MANTENIMIENTO o en BAJA conserva su estado: son
+            # decisiones administrativas que no las revierte una desasignacion.
+            if contenedor.estado.esta_ocupado():
+                contenedor.estado = EstadoContenedor.DISPONIBLE
+                uow.contenedores.actualizar(contenedor)
+            uow.outbox.guardar(
+                eventos.contenedor_desasignado(
+                    envio_id, contenedor_id, datetime.now(timezone.utc)
+                )
+            )
+            uow.commit()
+        log.info("Contenedor %s sacado del envio %s", contenedor_id, envio_id)
+        return contenedor
+
+    def listar_contenedores(self, envio_id: UUID) -> list[Contenedor]:
+        """Los contenedores que componen un envio, como entidades y no como
+        ids sueltos (D33)."""
+        with self._uow as uow:
+            if uow.envios.obtener(envio_id) is None:
+                raise NoEncontrado(f"No existe el envio {envio_id}")
+            ids = uow.envios.listar_contenedores(envio_id)
+            contenedores = [uow.contenedores.obtener(i) for i in ids]
+        return [c for c in contenedores if c is not None]
+
     # --- Consultas -------------------------------------------------------
 
     def obtener(self, envio_id: UUID) -> Envio:

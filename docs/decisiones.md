@@ -1507,6 +1507,14 @@ van en el mismo pipeline transaccional: si el `expire` se perdiera, la sesion
 quedaria viva para siempre. Hay un test de integracion que crea una sesion con
 TTL de 1 segundo y verifica que desaparece sin que nadie la borre.
 
+**El TTL se redondea hacia arriba.** `segundos_restantes()` usaba `int()`, que
+trunca: una sesion con 0,99 segundos de vida daba TTL 0 y `guardar` la
+rechazaba por vencida. Con el TTL de una hora no se notaba, pero el test de
+integracion que crea una sesion de 1 segundo fallaba de manera intermitente,
+segun si el reloj de Windows alcanzaba a avanzar entre construir la entidad y
+guardarla. Ahora usa `ceil`, que es lo correcto para un TTL: truncar mata la
+sesion antes de su `fecha_fin`. Hay dos tests de regresion.
+
 **`listar_activas()` usa SCAN, no KEYS.** `KEYS` bloquea el motor mientras
 recorre todo el espacio de claves, que en este proyecto comparte los locks de
 los procesos periodicos (D14), la cache de reportes y el heartbeat de sensores.
@@ -1629,6 +1637,53 @@ vacia de Cassandra no distingue "no existe el contenedor" de "no reporto en ese
 intervalo". PostgreSQL es la fuente de verdad y lo distingue, y el menu muestra
 un mensaje distinto en cada caso.
 
+### Revision del 28/10: donde vive el limite, y como se cuentan los dias
+
+El tope de 31 dias estaba escrito dos veces: como `timedelta(days=31)` en
+`GPSService` y como `MAX_DIAS_POR_CONSULTA` en la implementacion Cassandra. Y no
+contaban lo mismo: el servicio medía **tiempo transcurrido** y el repositorio
+**dias de calendario**, que es lo que corresponde porque cada dia es una
+particion. Pedir "los ultimos 31 dias" pasaba el control del servicio y lo
+rechazaba el motor diciendo "el rango abarca 32 dias", con un numero que el
+usuario no habia escrito.
+
+Ahora `MAX_DIAS_POR_CONSULTA` y `dias_del_rango()` viven en
+`repositories/lectura_repository.py`, o sea en el **contrato**, no en un motor.
+Los usan la implementacion Cassandra y el servicio: el servicio puede rechazar
+el rango antes de consultar PostgreSQL, sin repetir el numero y sin conocer
+Cassandra. De las 23:00 de un dia a las 01:00 del siguiente son dos
+particiones, aunque sean dos horas, y el mensaje de error es el mismo venga de
+donde venga.
+
+**El menu ofrece valores por defecto.** La consulta pedia un UUID y dos marcas
+de tiempo ISO con zona, tipeadas a mano. Ahora acepta el **codigo ISO** del
+contenedor (`HLCU7654321`, que es lo que esta impreso en el contenedor real y
+lo que tiene a mano un operador) y Enter en las fechas usa los ultimos 7 dias.
+`obtener_por_codigo` ya existia en el repositorio: no hizo falta nada nuevo.
+
+### El envio de cada posicion se resuelve en PostgreSQL
+
+`recorrido_por_contenedor` tiene columna `envio_id` y el simulador tiene el
+campo, pero la consulta que arma los sensores no lo traia, asi que la columna
+quedaba siempre en NULL: el cableado estaba completo y nadie llenaba el dato.
+
+Ahora `SQL_SENSORES` resuelve el envio con un LEFT JOIN. Las tres decisiones de
+esa consulta:
+
+1. **Es un LEFT JOIN, no un JOIN.** Un contenedor `DISPONIBLE` o
+   `EN_MANTENIMIENTO` no esta en ningun envio, y su lectura guarda `envio_id`
+   NULL. Con un JOIN interno esos sensores desaparecerian del simulador.
+2. **Si el contenedor estuvo en varios envios, vale el ultimo asignado que
+   todavia no termino** (`fecha_asignacion` descendente). `ENTREGADO` y
+   `CANCELADO` son finales (`EstadoEnvio.es_final`), asi que no son "el envio
+   actual".
+3. **El dato se guarda en la lectura, no se deriva al consultar.** El envio de
+   un contenedor cambia con el tiempo; la posicion registra en que envio estaba
+   **en ese momento**. Derivarlo despues contestaria con el envio de hoy, no
+   con el de la lectura.
+
+---
+
 ## D46 — Las consultas del grafo se exponen con un servicio que valida contra PostgreSQL
 
 **Estado:** implementada · **Fecha:** 28/10/2026 · **Responsable:** Umbi · **Alcance:** Neo4j, `ConsultaGrafoService`, menu "Consultas de la red logistica"
@@ -1646,3 +1701,759 @@ grafo ni se consulta.
 **Las consultas no pasan por la cache de reportes (D44).** Son consultas
 puntuales por id, no agregaciones que varios usuarios piden con los mismos
 parametros, asi que la cache no ahorraria nada.
+
+---
+
+## D47 — El promedio de incidentes lo arma el servicio, porque ninguna base lo puede responder sola
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `IncidenteService`, MongoDB, PostgreSQL, menu "Incidentes"
+
+Los incidentes viven en MongoDB y los envios en PostgreSQL. "Promedio de
+incidentes por envio" necesita las dos: **MongoDB cuenta el numerador** con una
+agregacion por grupo, **PostgreSQL cuenta el denominador** porque es el que sabe
+cuantos envios hay. Ninguna consulta sola lo responde, asi que lo compone el
+servicio. Es el ejemplo mas claro de por que el sistema es poliglota y no un
+capricho: la pregunta cruza la frontera entre los dos motores.
+
+**En que ejes tiene sentido, y en cuales no.** El promedio exige que numerador y
+denominador hablen de la misma poblacion:
+
+| Eje | Promedio | Por que |
+|---|---|---|
+| CLIENTE | si | `listar_por_cliente` cuenta sus envios |
+| PAIS_DESTINO | si | `listar_por_pais_destino` cuenta los envios al pais |
+| ESTADO | **no** | agrupa por el estado del **incidente** (ABIERTO, RESUELTO), que no es un estado de envio: "incidentes ABIERTO / envios ABIERTO" no existe |
+| RUTA | **no** | no hay "envios de la ruta ARBUE->NLRTM": la ruta sale de los tramos |
+| PAIS_ORIGEN | **no** | `EnvioRepository` resuelve el pais por la ubicacion de **destino** |
+
+El eje que no corresponde se rechaza con `ValidacionError` **nombrando los ejes
+disponibles**. La primera version aceptaba ESTADO y reventaba con un `ValueError`
+de Python al intentar construir `EstadoEnvio("ABIERTO")`: el error aparecio
+corriendo el servicio contra las bases reales, no en los tests, porque los
+dobles no conocen los valores validos de un enum.
+
+**La razon social la resuelve el servicio.** MongoDB guarda el cliente como
+UUID, porque la razon social vive en PostgreSQL y duplicarla en cada documento
+la dejaria desactualizada. El servicio trae el mapa de clientes y lo resuelve
+antes de devolver (D2). Si un documento tuviera guardado algo que no es un UUID,
+se rechaza con `ValidacionError` en vez de promediar cualquier cosa.
+
+**El denominador se cuenta por grupo, con una consulta cada uno.** Son pocos
+grupos (cuatro clientes, un pais por destino), asi que no se arma una agregacion
+en PostgreSQL solo para esto. Si los grupos crecieran, aca habria que cambiarlo.
+
+### El alta congela el contexto del envio
+
+`registrar()` arma el `ContextoEnvio` leyendo PostgreSQL —cliente, ubicacion de
+origen y de destino, con sus paises— y lo **congela** en el documento (D12). Las
+cuatro lecturas van en la misma transaccion (D28): el snapshot tiene que ser
+coherente entre si, no una mezcla de dos momentos.
+
+**Si falta una ubicacion, el incidente no se guarda.** No deberia pasar porque
+hay clave foranea, pero si pasara, un snapshot a medias ensuciaria el ranking de
+rutas para siempre: un incidente con la ruta incompleta queda mal contado en
+todas las consultas futuras. Es mas barato fallar el alta.
+
+**La ruta usa el LOCODE y no el nombre.** `ARBUE->NLRTM` y no
+`Puerto de Buenos Aires->Puerto de Rotterdam`: es corto, univoco y es lo que
+indexa MongoDB para el ranking (D12).
+
+**El estado cambia por el dominio.** `cambiar_estado()` trae el incidente, le
+pide `pasar_a()` a la entidad —que valida la transicion y deja el cambio en el
+historial embebido— y recien despues lo persiste con `actualizar()`. No hay un
+`cambiar_estado(id, estado)` en el repositorio (D18).
+
+---
+
+## D48 — El monitoreo IoT reparte cuatro motores en un solo caso de uso
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `MonitoreoService`, menu "Monitoreo IoT y alertas"
+
+Una sola pantalla —seguir un sensor— toca cuatro bases, y cada una esta elegida
+por la forma de su dato:
+
+| Dato | Motor | Por que |
+|---|---|---|
+| Ficha del sensor (modelo, numero de serie, cada cuanto reporta) | PostgreSQL | dato estable que se relaciona con el contenedor |
+| Lectura (temperatura, humedad, vibracion, posicion) | Cassandra | serie temporal que crece sin parar, se consulta por sensor y rango (D20) |
+| Umbral | MongoDB | configuracion chica y de forma distinta segun el tipo de contenedor (D25) |
+| Alerta | MongoDB | documento con el detalle embebido de lo que se violo |
+
+**El sensor pasa a ser una entidad de dominio.** No existia: el simulador
+consultaba la tabla `sensor` con SQL directo y dejaba anotado "cuando exista el
+repositorio, se reemplaza". Ahora hay `Sensor`, `SensorRepository` y su
+implementacion PostgreSQL, y entran en la Unidad de Trabajo como los demas
+(D28). Sin esto el menu obligaba a tipear un UUID de sensor sacado de la nada.
+
+**Tambien se agrega `Ubicacion`.** Hacia falta para el snapshot de D47: el envio
+guarda `origen_id` y `destino_id`, y el nombre y el pais estaban solo en la
+tabla. De paso le sirve al menu de envios, que hoy pide esos ids crudos.
+
+**Se busca por numero de serie, no por UUID.** Igual que el contenedor por su
+codigo ISO (D45): el numero de serie esta impreso en el equipo y es lo que tiene
+a mano un operador. El UUID sigue funcionando.
+
+**El tope de dias es el del contrato.** `historico()` reusa
+`MAX_DIAS_POR_CONSULTA` y `dias_del_rango()` de `LecturaRepository`, los mismos
+que el recorrido GPS (D45): cada dia es una particion de Cassandra y el limite se
+declara una sola vez.
+
+### El control de cobertura de umbrales
+
+Nace de un error real: los umbrales cubrian **2 de los 7 tipos de contenedor**,
+asi que la deteccion salteaba sensores **en silencio** y nadie se enteraba. Al
+completarlos, una corrida identica paso de 14 a 45 alertas. Una configuracion
+incompleta es peor que una ausente, porque parece que esta funcionando.
+
+`cobertura_de_umbrales()` cruza los tres motores que participan de la deteccion
+—sensores y tipo de contenedor de PostgreSQL, umbrales de MongoDB— y lista, por
+tipo de contenedor en uso, que magnitudes tienen umbral y cuales no.
+
+**Solo mira las magnitudes que la deteccion realmente evalua.** La primera
+version comparaba contra todas las de `MagnitudUmbral` y reportaba HUMEDAD y
+VIBRACION como faltantes en los tres tipos, cuando el servicio de deteccion solo
+compara temperatura a proposito. Un control que grita por algo deliberado
+entrena a ignorarlo. Ahora `DeteccionAnomaliasService` publica
+`MAGNITUDES_EVALUADAS` y el control usa esa lista: **algo es un hueco solo si la
+deteccion lo necesita**.
+
+### Reconocer una alerta necesito un metodo nuevo
+
+`AlertaRepository.guardar()` es un **insert-if-not-exists** (`$setOnInsert`): si
+la alerta ya existe no la toca, porque el id es deterministico y reintentar una
+deteccion no debe duplicarla (D33). Eso significa que `guardar()` **no sirve para
+modificar**: reconocer o cerrar una alerta llamando a `guardar()` no hubiera
+guardado nada, en silencio. Se agrego `actualizar()`, que hace `replace_one` y
+lanza `NoEncontrado` si no existe, igual que `IncidenteRepository`.
+
+**La alerta no tiene mapa de transiciones** como el envio (D4) o el incidente:
+sus tres estados son una secuencia lineal, asi que la unica regla es que
+`CERRADA` es final.
+
+---
+
+## D49 — El filtro de permisos se reusa dentro de los submenus
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `cli/permisos.py`, menus de incidentes y monitoreo
+
+D42 puso el control de acceso en el menu principal: cada seccion declara su
+nivel minimo y `opciones_para()` filtra y renumera. Al sumar incidentes y
+monitoreo aparecio un caso que ese nivel unico no cubre: **dentro de una misma
+seccion hay opciones de distinto riesgo**. Configurar un umbral cambia lo que
+todo el sistema considera una anomalia; mirar las lecturas de un sensor no
+cambia nada.
+
+La tentacion era poner un `if nivel >= ...` adentro del menu. No: el criterio
+quedaria repartido y seria imposible auditarlo de un vistazo. En cambio los
+niveles y `opciones_para()` se mudaron a `cli/permisos.py`, y los submenus
+declaran sus opciones con la misma forma `(nivel minimo, etiqueta, accion)` y
+llaman **a la misma funcion**. Un solo mecanismo, en un solo lugar, en los dos
+niveles del menu.
+
+El resultado es una jerarquia que se puede mostrar en vivo:
+
+| Rol | Secciones | Incidentes | Monitoreo |
+|---|---|---|---|
+| ADMINISTRADOR (100) | 10 de 10 | 7 | 10 |
+| OPERADOR (60) | 8 de 10 | 7 | 9 (sin configurar umbrales) |
+| AUDITOR (30) | 3 de 10 | 5 (solo consultas) | 5 (solo consultas) |
+| CLIENTE (10) | 0 | — | — |
+
+**El rol AUDITOR dejo de ser un callejon sin salida.** Antes veia solo
+"Reportes". Ahora ve tambien incidentes y monitoreo en modo lectura, que es
+justo el material de una auditoria, y no ve nada que modifique datos. Las dos
+secciones nuevas entran con nivel de auditor **porque sus consultas son de
+auditoria**, y el filtro interno le saca las opciones de operacion.
+
+Hubo que corregir una contradiccion en el camino: las secciones estaban
+declaradas con nivel de operador mientras sus opciones internas decian nivel de
+auditor, asi que esas opciones eran inalcanzables. Las dos listas tienen que
+estar alineadas, y hay un test que compara lo que ve cada nivel en los dos
+menus.
+
+---
+
+## D50 — Las detecciones periodicas tambien se disparan a mano
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `MonitoreoService`, menu "Monitoreo IoT y alertas"
+
+El control de estado de sensores (D43) y la deteccion de anomalias de
+temperatura funcionaban, pero **solo adentro de otro proceso**: el primero en el
+planificador cada 30 segundos, el segundo dentro del simulador IoT, a medida que
+escribe cada lectura. Las dos dejaban su resultado en el log.
+
+Para el criterio del enunciado —que cada punto este "presente y operativo, es
+decir que tiene datos para dar un resultado"— eso no alcanza: quien abre la
+aplicacion no las puede ejecutar ni ver su resultado. Ahora las dos tienen su
+opcion de menu, y el planificador las sigue corriendo igual. **Es el mismo
+servicio llamado desde dos lados**, no una copia.
+
+**`controlar_sensores()` resuelve el numero de serie.** La deteccion devuelve
+solo el UUID del sensor, porque trabaja con el heartbeat de Redis. El servicio
+lo cruza con PostgreSQL para mostrar el numero de serie, que es lo unico que le
+sirve a quien mira la pantalla. Un sensor que estuviera en Redis y no en
+PostgreSQL cae al UUID en vez de romper.
+
+**`detectar_anomalias()` reevalua las ultimas lecturas de cada sensor
+instalado.** Un sensor sin contenedor no tiene tipo contra el que comparar, asi
+que se saltea. Sirve para dos cosas:
+
+1. **Recuperar deteccion perdida.** Si los umbrales estaban mal configurados o
+   el proceso estuvo caido, se vuelve a pasar sobre las lecturas ya guardadas.
+2. **Mostrar la idempotencia en vivo.** Correrla dos veces seguidas informa cero
+   alertas nuevas la segunda vez, porque el id de una alerta es deterministico
+   (`Alerta.generar_id`, D33). Es la demostracion mas simple de que reintentar
+   no duplica.
+
+**Como se muestra que si detecta:** apretar un umbral desde el menu y volver a
+correr la deteccion. Con `DRY_40` llevado a `[19.0, 19.5]` aparecen 7 alertas
+nuevas sobre las mismas 80 lecturas, y la segunda corrida da 0. Es la forma de
+ver en una pantalla que la configuracion de umbrales manda sobre la deteccion.
+
+**Las dos detecciones se inyectan como opcionales.** El planificador arma las
+suyas por su cuenta, asi que `MonitoreoService` funciona sin ellas y avisa con
+`ValidacionError` si se le pide una que no tiene.
+
+---
+
+## D51 — Proveedores y operadores comparten entidad base, servicio y menu
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** `domain/partes.py`, `parte_service`, `menu_partes`, facturacion
+
+Las tablas `proveedor` y `operador` tenian datos semilla desde la primera
+semana —tres de cada uno— y **la aplicacion no los mostraba**: no habia
+entidad, ni repositorio, ni servicio, ni menu. Eran dos puntos del enunciado en
+cero con los datos ya cargados.
+
+**Son dos tablas, no una.** El enunciado las pide por separado y cumplen roles
+distintos: el operador transporta la carga, el proveedor presta un servicio
+(estiba, bunkering, mantenimiento). Unificarlas obligaria a una columna
+discriminadora y a aceptar que un operador tenga `tipo_servicio`.
+
+**Pero tienen la misma forma**, asi que comparten:
+
+- **`ParteComercial`**, con CUIT, razon social, contacto, pais y baja logica.
+  `Proveedor` agrega `tipo_servicio`; `Operador` no agrega nada. Cada una
+  responde `titular_tipo` con el valor que le corresponde en su cuenta
+  corriente (D41).
+- **`ServicioDeParte`**, con alta, baja, modificacion, reactivacion y busqueda.
+  Cada subclase declara solo con que repositorio trabaja y como construye su
+  entidad. Repetir el servicio dos veces seria repetir tambien sus reglas, y
+  una se arreglaria sin la otra.
+- **`menu_partes`**, parametrizado: `con_servicio` agrega la columna y el campo
+  del proveedor.
+
+**Los repositorios si son dos contratos separados**, aunque tengan los mismos
+metodos: la Unidad de Trabajo expone `proveedores` y `operadores` por separado,
+y un servicio que recibe `OperadorRepository` no puede recibir proveedores por
+error.
+
+**`Cliente` queda aparte.** Lleva direccion, es el unico que origina envios y su
+alta **si** publica al Outbox, porque crea un nodo del grafo. Meterlo en la
+jerarquia obligaria a que la base conociera el Outbox.
+
+**Ni el alta de un proveedor ni la de un operador publican eventos.** El grafo
+proyecta clientes, envios, tramos y operadores a traves de los eventos de envio
+(D37): dar de alta un operador no cambia por si solo ninguna relacion. Cuando
+ese operador participe de un envio, el evento de ese envio lo proyecta.
+
+**`modificar()` revalida la entidad entera.** Un `setattr` se saltea
+`__post_init__`, asi que sin la revalidacion un email roto llegaria a la base.
+Como la excepcion sale antes del `commit`, la Unidad de Trabajo deshace todo
+(D28). El CUIT no se modifica: es la identidad fiscal y lo referencian las
+cuentas corrientes.
+
+### Lo que esto destraba en facturacion
+
+`menu_facturacion` elegia el cliente de una lista, pero para un proveedor o un
+operador pedia el **UUID tipeado a mano**, con un comentario que decia "todavia
+no tienen su propio CRUD". Ahora los tres se eligen por razon social, asi que
+facturarle a un operador es tan directo como facturarle a un cliente.
+
+La tabla de cuentas corrientes tambien muestra el nombre del titular en vez de
+los primeros ocho caracteres de su UUID. La cuenta guarda `titular_tipo` +
+`titular_id` y **no tiene clave foranea**, porque apunta a tres tablas distintas
+(D41): resolver el nombre es tarea de quien muestra, y ahora hay de donde
+sacarlo para los tres tipos.
+
+---
+
+## D52 — Los ABM que estaban a medias: que se puede modificar y que no
+
+**Estado:** implementada · **Fecha:** 29/10/2026 · **Alcance:** contenedores, sensores, usuarios, roles, umbrales, contenedores de un envio
+
+Varios ABM tenian el alta y el listado pero les faltaba la M o la B. Al
+completarlos aparecio una pregunta que se repite en todos: **que campos se
+pueden modificar**. La respuesta no es "todos": un campo que identifica algo
+fisico o que lo referencian otras bases no se cambia, porque cambiarlo es
+inventar otra entidad.
+
+| Entidad | No se modifica | Por que |
+|---|---|---|
+| Contenedor | `codigo_iso` | Es ISO 6346, esta impreso en el contenedor, y lo referencian sus lecturas en Cassandra y su nodo en el grafo |
+| Sensor | `numero_serie`, `tipo` | Identifican el equipo fisico; un sensor de temperatura no se convierte en uno de GPS |
+| Usuario | `password_hash` | Tiene su propia operacion: cambiarla exige largo minimo y hasheo, y mezclarla con los datos de contacto haria facil pisarla sin querer |
+| Proveedor / Operador | `cuit` | Es la identidad fiscal y lo referencian las cuentas corrientes |
+
+**Todos los `modificar()` revalidan la entidad completa.** Un `setattr` se
+saltea `__post_init__`, asi que sin la revalidacion un email roto o una
+capacidad negativa llegarian a la base. Como la excepcion sale antes del
+`commit`, la Unidad de Trabajo deshace todo (D28).
+
+### El ABM de contenedores no puede poner los estados que pone el envio
+
+`ASIGNADO` y `EN_TRANSITO` los escribe `EnvioService` **junto con la fila de
+`envio_contenedor`, en la misma transaccion** (D28). Si el ABM pudiera ponerlos
+a mano, quedaria un contenedor marcado como ocupado sin ningun envio que lo
+tenga, y la regla de "un contenedor no puede estar en dos envios activos"
+(supuesto 1) empezaria a rechazar asignaciones validas.
+
+Por eso `cambiar_estado()` solo acepta los estados administrativos
+(`DISPONIBLE`, `EN_MANTENIMIENTO`, `BAJA`) y ademas **se niega a tocar un
+contenedor que ya esta ocupado**: primero hay que sacarlo del envio.
+
+### Sacar un contenedor de un envio
+
+Es la "B" del punto "ABM de contenedores de un envio", y tiene dos reglas:
+
+1. **Solo mientras el envio no salio.** Una vez `EN_TRANSITO`, `EN_PUERTO` o
+   `ENTREGADO`, lo que viajo ya viajo: sacarlo falsearia el historico. Para
+   corregir un envio en curso esta el cambio de estado a `CANCELADO`.
+2. **El contenedor vuelve a `DISPONIBLE` solo si estaba ocupado.** Uno en
+   `EN_MANTENIMIENTO` o en `BAJA` conserva su estado: son decisiones
+   administrativas que no las revierte una desasignacion.
+
+**Se borra la fila de `envio_contenedor`, no se marca.** La tabla registra que
+contenedores componen el envio, no un historial de asignaciones; una fila
+"desasignada" obligaria a `listar_contenedores` a filtrar en todas las
+consultas.
+
+### Un evento nuevo, y una asimetria deliberada entre los dos proyectores
+
+Sacar un contenedor publica `CONTENEDOR_DESASIGNADO` al Outbox, con el mismo
+agregado y el mismo payload que la asignacion.
+
+**Neo4j lo proyecta borrando la relacion:**
+
+```cypher
+MATCH (e:Envio {id: $envio_id})-[r:INCLUYE]->(co:Contenedor {id: $contenedor_id})
+DELETE r
+```
+
+Borrar es tan idempotente como `MERGE`: si la relacion ya no esta, el `MATCH` no
+encuentra nada y la consulta no hace nada, asi que reintentar no rompe (D35). Y
+**tiene que proyectarse**, porque las consultas de D37 recorren `INCLUYE` para
+responder por que tramos paso un contenedor: una relacion que quedara ahi
+estaria mintiendo.
+
+**Cassandra NO lo registra, a proposito.** La traza de `eventos_por_envio` es el
+**recorrido** del envio —carga iniciada, en transito, en puerto, entregado— y
+sacar un contenedor es una correccion administrativa, no un movimiento. Sumarlo
+obligaria ademas a un `TipoEventoLogistico` nuevo y a cambiar el CHECK de la
+tabla. El proyector de Cassandra filtra por lista blanca, asi que el evento
+nuevo simplemente no le interesa.
+
+Verificado de punta a punta contra las bases: asignar y sincronizar deja
+`INCLUYE = 1`, sacar y sincronizar lo deja en `0`, y el contenedor vuelve a
+`DISPONIBLE`.
+
+### Cambiarle el nivel a un rol le cambia el menu a todos sus usuarios
+
+El `nivel_permisos` de un rol es lo que recorta el menu (D42, D49). Darlo de
+alta en 100 es dar acceso total, y bajarlo deja gente sin opciones que antes
+veia. Por eso el menu **avisa a cuantos usuarios les va a cambiar la pantalla**
+antes de confirmar, y el servicio lo registra con `log.warning` cuando el nivel
+efectivamente cambia. Es el unico ABM del sistema cuya modificacion afecta a
+terceros sin tocar sus filas.
+
+### Desinstalar un sensor no borra sus lecturas
+
+Sacar un sensor de un contenedor le pone `contenedor_id` en `NULL`, pero sus
+lecturas en Cassandra quedan como estan: **cada lectura guarda el
+`contenedor_id` del momento** (D20), asi que el historico sigue siendo cierto
+aunque el sensor hoy este en otro lado o en stock. Es la misma idea que el
+snapshot del incidente (D12): el dato historico registra las circunstancias de
+cuando ocurrio, no las actuales.
+
+### Eliminar un umbral es un borrado fisico
+
+A diferencia de clientes o contenedores, un umbral **no lo referencia nadie**:
+una alerta ya creada guarda en su detalle el limite que se violo, asi que sigue
+siendo legible sin el umbral. Lo que si cambia es que esa magnitud deja de
+evaluarse, y el control de cobertura (D48) la va a marcar como faltante.
+
+---
+
+## D53 — El promedio "por estado" es por estado del ENVIO, y es el unico eje que ninguna base agrupa sola
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `IncidenteService`, MongoDB, PostgreSQL
+
+El enunciado pide "Reporte analitico de **Promedio de incidentes por pais /
+estado / cliente**". Habia una confusion: `AgrupacionIncidentes.ESTADO`
+agrupaba por `$estado`, que es el estado del **incidente** (ABIERTO,
+EN_ANALISIS, RESUELTO, CERRADO). Eso no es lo que pide el enunciado y ademas no
+tiene denominador: "incidentes ABIERTO / envios ABIERTO" no existe.
+
+El estado que importa es el del **envio**. Y ahi aparece el caso mas
+interesante de todo el sistema:
+
+**El estado del envio no esta en el documento del incidente, y no puede
+estarlo.** El snapshot de D12 congela las circunstancias del incidente —
+cliente, origen, destino, paises — porque son datos que describen *cuando
+ocurrio*. El estado del envio **cambia con el tiempo**: un envio que estaba
+EN_TRANSITO cuando se cargo el incidente hoy puede estar ENTREGADO. Congelarlo
+daria un reporte que envejece mal.
+
+**Entonces lo resuelven las dos bases juntas:**
+
+1. MongoDB agrupa los incidentes **por envio** (`AgrupacionIncidentes.ENVIO`).
+2. PostgreSQL dice en que estado esta **hoy** cada envio.
+3. El servicio suma, por estado, los incidentes de sus envios.
+
+Ninguna consulta sola lo responde. Es el ejemplo mas claro de por que el
+sistema es poliglota, mas todavia que el promedio por cliente: ahi MongoDB al
+menos tiene la clave agrupadora en el documento.
+
+**Los estados sin envios aparecen igual, con cero.** Que no haya envios
+CANCELADO es informacion; omitir la fila lo haria parecer un dato faltante.
+
+**El enum del repositorio se renombro a `ESTADO_INCIDENTE`.** Se llamaba
+`ESTADO` a secas y por eso se confundio. El nombre ahora dice cual de los dos
+estados es, y sigue sirviendo para el conteo simple (cuantos incidentes hay
+abiertos, resueltos, etc.).
+
+**El servicio expone su propio enum `EjePromedio` (PAIS, ESTADO, CLIENTE)**, que
+es literalmente lo que nombra el enunciado, en vez de filtrar hacia el menu el
+enum del repositorio. Cada eje se resuelve distinto por dentro, y el menu no
+tiene por que saberlo.
+
+---
+
+## D54 — Un reporte se pide, se genera y se factura: tres pasos, tres motores
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `SolicitudReporte`, MongoDB, PostgreSQL, facturacion
+
+El enunciado pide "**Solicitud de reportes**" y "**Creacion de reportes
+operativos y analiticos parametrizados (facturables)**". Son dos puntos que
+describen un mismo flujo: alguien pide un reporte con parametros, el sistema lo
+calcula, y eso se le cobra.
+
+### Por que la solicitud vive en MongoDB
+
+**Los parametros cambian segun el reporte.** El de envios por pais lleva un
+rango de fechas; el ranking de clientes lleva ademas un limite; el de costos
+por tipo de transporte no lleva ninguno; el promedio de incidentes lleva un eje.
+En PostgreSQL eso serian o una columna por parametro —casi todas en NULL— o una
+columna JSON, que es un documento disfrazado. Es el mismo criterio que llevo los
+umbrales a MongoDB (D25).
+
+Lo que **si** vive en PostgreSQL es su consecuencia: la factura, porque eso es
+dinero y necesita la transaccion de la cuenta corriente (D41).
+
+### Por que son tres operaciones y no una
+
+`solicitar()` registra el pedido y le pone precio. `generar()` calcula.
+`facturar()` emite. Juntarlas seria mas corto y estaria peor:
+
+- **Pueden fallar por separado.** El pedido queda registrado aunque el calculo
+  falle, y se puede reintentar. Si fuera un solo metodo, un error de PostgreSQL
+  borraria el pedido del titular.
+- **Pasan en momentos distintos.** Un reporte pesado se pide ahora y se genera
+  despues; la facturacion puede ser al cierre.
+- **Queda la traza.** Se ve que se pidio aunque despues se cancele.
+
+### El precio queda congelado en la solicitud
+
+Como el contexto de un incidente (D12): si manana cambia la tarifa, se factura
+**lo que se cotizo cuando el titular lo pidio**. Hay un test que verifica que el
+importe facturado sale de la solicitud y no del catalogo.
+
+El tarifario distingue **operativo** (150) de **analitico** (450): un reporte
+analitico agrega sobre todo el historico en vez de contar lo que hay hoy. Es una
+constante y no un ABM de tarifas porque el enunciado no lo pide; si lo pidiera,
+iria a MongoDB al lado de los umbrales.
+
+### El servicio no consulta las bases: reusa los reportes que ya existen
+
+`_calcular()` despacha a `ReporteService`, `IncidenteService` o `EnvioService`
+segun el tipo. Lo suyo es el **ciclo de vida del pedido**, no la consulta. Como
+efecto, los reportes solicitados aprovechan la cache de Redis (D44) sin hacer
+nada especial.
+
+### La parte honesta: el cuarto paso queda afuera de la transaccion
+
+`facturar()` llama a `FacturacionService.emitir()`, que mete factura, movimiento
+y saldo en **una sola transaccion** de PostgreSQL (D41). Despues marca la
+solicitud como FACTURADA en MongoDB.
+
+**Ese ultimo paso no esta en la transaccion**, porque MongoDB y PostgreSQL no
+comparten una. Si fallara, quedaria una factura emitida y una solicitud en
+GENERADA. No se resolvio con un Outbox —seria el tercer destino y el evento no
+proyecta nada, solo cierra un estado—: se resolvio **haciendolo visible**.
+`listar_pendientes_de_facturar()` devuelve justo las GENERADA, y el menu la
+ofrece como primer paso de "Facturar un reporte generado". Si una quedo a
+medias, aparece ahi y se vuelve a intentar; como `emitir()` se llamaria dos
+veces, el operador ve la factura ya emitida en la cuenta del titular.
+
+Es la misma clase de decision que D41 con el saldo denormalizado: se acepta una
+ventana de inconsistencia **y se agrega la herramienta para encontrarla**, en
+vez de pretender que no existe.
+
+### Validacion de parametros en el dominio
+
+Cada tipo de reporte declara en el `CATALOGO` que parametros acepta, y la
+entidad rechaza los que sobran: pedir un limite a un reporte que no lo usa es un
+error del **pedido**, no de la ejecucion, asi que se detecta al solicitar y no
+cuando ya se cobro. Hay un test que verifica que el catalogo cubre todos los
+tipos: uno sin especificacion reventaria al validar.
+
+---
+
+## D55 — La prediccion de atrasos es un puntaje explicable, no un modelo entrenado
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `PrediccionService`, PostgreSQL, MongoDB, menu "Prediccion de atrasos y riesgos"
+
+El enunciado pide "**Prediccion de atrasos**" y "**Creacion de reportes de
+analisis predictivos (atrasos y riesgos)**".
+
+**No se uso machine learning, y es la decision principal de esta pieza.** Con
+seis envios de prueba un modelo no tendria de donde aprender, y sobre todo no se
+podria explicar: ante "por que este envio es de riesgo ALTO" la unica respuesta
+seria "porque lo dijo el modelo". Un sistema de logistica que no puede explicar
+una alerta no sirve para operar.
+
+Lo que hay es un **puntaje por factores observables**. Cada senal suma puntos y
+queda registrada con su motivo en palabras, asi que la prediccion viene con su
+propia explicacion y el menu puede mostrar, envio por envio, por que esta donde
+esta. Un operador la puede discutir; eso es lo que se puede defender.
+
+### Los factores, y de donde sale cada uno
+
+| Factor | Puntos | Base |
+|---|---|---|
+| Tramos que **ya llegaron tarde** | 2 por tramo | PostgreSQL (`tramo.fecha_llegada_real`) |
+| Tramos **vencidos sin llegada** | 3 por tramo | PostgreSQL |
+| **Incidentes abiertos** del envio | 2 cada uno | MongoDB |
+| Incidentes de severidad **ALTA o CRITICA** | +3 cada uno | MongoDB |
+| La **llegada estimada vencio** y falta recorrido | 4 | PostgreSQL (D7) |
+| **Recorrido completo sin entrega registrada** | 3 | PostgreSQL |
+| El envio **no tiene tramos** | 2 | PostgreSQL |
+
+Los cortes de nivel son redondos —MEDIO 1, ALTO 4, CRITICO 8— **a proposito**:
+no hay nada que los calibre con seis envios, asi que inventar decimales seria
+fingir una precision que no existe. Son constantes nombradas para que el
+criterio se discuta en un solo lugar.
+
+### El puntaje mide riesgo; el atraso proyectado mide tiempo
+
+Son dos numeros distintos y no se mezclan. `atraso_acumulado` **no sale del
+puntaje**: sale del atraso que el envio ya se comio en sus tramos, que no es una
+estimacion sino un hecho. La fecha proyectada es la estimada corrida por ese
+atraso. Derivar dias a partir de puntos daria un numero inventado con cara de
+dato.
+
+### Dos factores que parecian uno
+
+La primera version marcaba "la llegada estimada vencio" cada vez que la fecha
+habia pasado. Un test mostro el caso donde eso miente: un envio cuyos tramos
+**ya llegaron todos** y sigue EN_TRANSITO. Ahi la fecha vencida no explica nada
+—el envio llego— y lo que falta es registrar la entrega. Son dos problemas
+distintos y ahora son dos factores distintos, con mensajes distintos.
+
+### Una consulta a MongoDB para todos los envios
+
+`listar_abiertos()` ya trae el `envio_id` de cada incidente, asi que se agrupan
+en memoria en vez de preguntar por cada envio. Con los envios en curso que puede
+haber, una consulta por envio seria un N+1 evitable.
+
+### Lo que la prediccion NO hace
+
+- **No mira el historico de la ruta.** Seria el factor mas interesante —"los
+  envios a Rotterdam llegan en promedio dos dias tarde"— pero con dos envios
+  entregados en los datos de prueba el promedio no significaria nada. Queda
+  anotado como lo primero que agregaria con datos reales.
+- **No corrige la fecha estimada en la base.** La proyeccion se calcula al
+  consultar y no se guarda: es una opinion del sistema, no un dato del envio, y
+  guardarla obligaria a recalcularla cada vez que cambia un tramo (mismo
+  criterio que D7 con la llegada estimada).
+
+### Se devuelven todos los envios, tambien los de riesgo BAJO
+
+Saber que un envio no tiene senales de atraso es tan util como saber que las
+tiene. Filtrar en el servicio obligaria a adivinar que umbral quiere quien
+consulta; el menu ofrece la vista completa y la de "los que necesitan atencion"
+por separado.
+
+---
+
+## D56 — Las fechas de la semilla son relativas, no literales
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `scripts/postgres/02_datos_prueba.sql`
+
+El timeline de los datos de prueba estaba pensado para un "hoy" concreto: el
+envio 5 todavia sin salir, el 3 llegando en tres semanas, el 2 recien demorado
+y el 4 demorado a proposito desde hacia tres semanas. Con fechas **literales**,
+ese "hoy" era alrededor del 10/02/2026.
+
+Ocho meses despues, **los cuatro envios en curso figuraban entre 239 y 265 dias
+tarde**. Las consecuencias no eran cosmeticas:
+
+- "Envios demorados" devolvia **todos** los envios en curso, asi que dejaba de
+  distinguir nada;
+- la prediccion de atrasos (D55) marcaba todo ALTO o CRITICO por el mismo
+  motivo trivial, que es justo lo que un reporte de riesgos no tiene que hacer;
+- cualquier reporte con rango de fechas por defecto se veia vacio o raro.
+
+Y **empeoraba cada dia**: no era un error que estuviera ahi o no, era uno que
+crecia solo.
+
+**Ahora cada fecha se escribe como `CURRENT_TIMESTAMP ± INTERVAL`.** Las
+distancias entre fechas se conservan exactas —se calcularon contra el ancla
+original, 10/02/2026— y lo unico que se mueve es el punto de partida, que pasa
+a ser el dia en que se cargan los datos. El timeline vuelve a ser el que se
+diseno, cargue cuando se cargue.
+
+| Envio | Estado | Llegada estimada |
+|---|---|---|
+| 1 | ENTREGADO | hace 10 dias |
+| 2 | EN_TRANSITO | hace 2 dias (recien demorado) |
+| 3 | EN_PUERTO | en 19 dias |
+| 4 | EN_TRANSITO | hace 20 dias (demorado a proposito) |
+| 5 | CREADO | en 24 dias |
+
+El test de integracion que verificaba el envio demorado tambien dejo de usar
+una fecha fija: ahora consulta con la hora real, porque "hoy" siempre cae en el
+mismo punto del timeline.
+
+**La semilla de MongoDB no necesito el cambio:** sus incidentes se cargan con
+fechas cercanas al momento de la carga.
+
+---
+
+## D57 — Mensajeria con las partes: los mensajes van referenciados, no embebidos
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `mensajeria`, MongoDB, menu "Mensajeria con las partes"
+
+El enunciado pide "**Servicio de Mensajeria con las partes (Cliente -
+Proveedores - Operadores Logisticos)**".
+
+### Referenciados, no embebidos, y por que es al reves que en un incidente
+
+Una conversacion y sus mensajes viven en **dos colecciones**: `conversaciones` y
+`mensajes`, con cada mensaje apuntando a su hilo por `conversacion_id`.
+
+Es la decision contraria a la de D12, donde el `historial_estados` de un
+incidente va **embebido**, y la diferencia esta en como crece cada cosa:
+
+| | Historial de un incidente | Mensajes de un hilo |
+|---|---|---|
+| Cuantos | unos pocos cambios de estado | **sin limite** |
+| Como se lee | siempre junto al incidente | el hilo completo, o de a partes |
+| Riesgo de embeber | ninguno | pasar los **16 MB** por documento |
+
+Esa decision ya estaba tomada y escrita en `scripts/mongo/mongo_modelo.js`
+desde la semana del modelo fisico, y se respeto. La primera version de esta
+pieza los habia embebido; el validador de la coleccion la rechazo, que es
+exactamente para lo que esta.
+
+Por eso `Conversacion` **no carga sus mensajes**, igual que `Envio` no carga sus
+tramos (D6): cuando una consulta necesita las dos cosas, el servicio las compone
+en `ConversacionConMensajes`.
+
+### El validador se cambio, y vale explicar por que
+
+El esquema original modelaba un chat **entre usuarios** (`participantes`, con
+tipos PRIVADA y GRUPAL). Eso no cubre lo que pide el enunciado: **proveedores y
+operadores no tienen usuarios en el modelo**, asi que nunca podrian participar.
+
+Ahora una conversacion es un hilo entre la empresa y **una parte**, identificada
+igual que en la cuenta corriente: `parte_tipo` + `parte_id` (D41). Lo que se
+conservo es la decision estructural —referenciar y no embeber—, que era la
+parte que valia.
+
+### `sin_leer` y `actividad` se guardan, aunque sean derivables
+
+Las dos se podrian calcular leyendo los mensajes del hilo. Se guardan en la
+conversacion porque **son por donde se ordena y se filtra el listado**: con los
+mensajes en otra coleccion, derivarlas obligaria a leer todos los mensajes de
+todas las conversaciones en cada listado.
+
+Es la misma denormalizacion deliberada que el saldo de una cuenta corriente
+(D41), y con el mismo cuidado: `marcar_leidos()` actualiza **los mensajes en la
+base** con un `update_many` y recien despues pone el contador en cero, en vez de
+traer el hilo entero para cambiar un booleano.
+
+**Solo cuentan como pendientes los mensajes de la parte.** Los que escribio la
+empresa ya los leyo quien los escribio, y marcarlos no significaria nada.
+
+### Las dos escrituras no comparten transaccion, y se eligio el orden
+
+Escribir un mensaje son dos operaciones: insertar en `mensajes` y actualizar el
+hilo. MongoDB las haria en una transaccion solo con replica set, que este
+despliegue de un nodo no tiene.
+
+Se acepta la ventana **y se eligio que se escribe primero**: el mensaje. Si
+fallara la segunda escritura, quedaria el mensaje guardado y el contador corto.
+Al reves se perderia el mensaje. El contador se puede recalcular; un mensaje no.
+Hay un test que verifica ese orden.
+
+### El mensaje entrante se carga a mano
+
+En un sistema real entraria por un correo o una API. Aca hay una opcion de menu
+para registrarlo, que es lo que permite mostrar el ida y vuelta completo en la
+defensa: abrir el hilo, recibir, ver la bandeja de pendientes, responder y
+marcar como leido.
+
+---
+
+## D58 — Un solo modelo por concepto: la coleccion `reportes` se unifico
+
+**Estado:** implementada · **Fecha:** 30/10/2026 · **Alcance:** `scripts/mongo/mongo_modelo.js`, `SolicitudReporte`
+
+El modelo fisico de MongoDB tenia disenada una coleccion `reportes` desde la
+semana del modelado. Al implementar la solicitud de reportes (D54) se creo una
+coleccion nueva, `solicitudes_reporte`, sin mirar el modelo: quedaron **dos
+disenos del mismo concepto** en el mismo proyecto, uno escrito y otro en uso.
+
+Se unificaron en `reportes`, que es la que estaba documentada.
+
+**Que se tomo de cada uno.** El esquema original no podia facturar —no tenia
+costo ni titular, y `usuario_id` no es titular de ninguna cuenta corriente—
+asi que no cumplia el requisito del enunciado, que pide reportes **facturables**.
+Se conservo su nombre, su argumento (parametros de forma libre segun el tipo) y
+su `usuario_id`, y se le sumo lo que faltaba para facturar.
+
+**Y de ahi salio algo mejor que cualquiera de los dos por separado:** `usuario_id`
+y el titular son **cosas distintas**. Quien **pide** el reporte es un usuario
+interno; a quien se le **factura** es la parte. Un operador de la empresa puede
+pedir un reporte para facturarselo a un cliente. La cuenta corriente necesita al
+titular (D41) y la auditoria necesita al usuario. Los dos se guardan.
+
+**Lo que se dejo afuera:** el campo `formato` (PDF/CSV/XLSX). El sistema no
+exporta a archivos —el resultado se muestra en pantalla— y declarar un campo que
+nadie escribe seria prometer algo que no hace.
+
+**Los estados se cambiaron** de SOLICITADO/GENERANDO/COMPLETADO/ERROR a
+SOLICITADA/GENERADA/FACTURADA/CANCELADA, porque el ciclo que importa es el del
+**pedido y su cobro**, no el de un archivo generandose.
+
+### Dos colecciones mas que se sacaron
+
+Buscando este solapamiento aparecieron otras dos declaradas y **vacias**:
+
+- **`grupos_trabajo`**: era parte del chat entre usuarios que D57 reemplazo por
+  la mensajeria con las partes. Sin ese chat, no hay grupos que agrupar.
+- **`predicciones_riesgo`**: guardaba una prediccion por envio y por dia. D55
+  decide **no persistir** la prediccion, por la misma razon que la fecha de
+  llegada estimada no se guarda en `envio` (D7): es un valor derivado, y
+  guardarlo obligaria a recalcularlo cada vez que cambia un tramo o aparece un
+  incidente. Ademas su esquema pedia probabilidades de 0 a 1 y un campo
+  `modelo`, que suponen un entrenamiento que el sistema no hace a proposito.
+
+**Una coleccion que nadie escribe es una promesa que el sistema no cumple.** Las
+dos se sacaron del modelo, con el motivo escrito ahi mismo para que se vea que
+fue una decision y no un olvido.
+
+El modelo fisico declara ahora exactamente las colecciones que el sistema usa:
+`incidentes`, `alertas`, `conversaciones`, `mensajes` y `reportes` —mas
+`umbrales`, que tiene su propio script—.

@@ -17,6 +17,16 @@ class AlertaRepository(ABC):
         ...
 
     @abstractmethod
+    def actualizar(self, alerta: Alerta) -> None:
+        """Persiste una alerta ya modificada, por ejemplo al reconocerla o
+        cerrarla. Hace falta aparte de `guardar` porque `guardar` es un
+        insert-if-not-exists: si la alerta existe, no la toca.
+
+        Lanza NoEncontrado si no existe.
+        """
+        ...
+
+    @abstractmethod
     def obtener(self, id: UUID) -> Alerta | None: ...
 
     @abstractmethod

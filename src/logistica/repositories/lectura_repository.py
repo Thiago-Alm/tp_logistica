@@ -1,9 +1,28 @@
 """Interfaz de persistencia de Lectura. La implementa infrastructure/cassandra."""
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from logistica.domain.lectura import Lectura, Posicion
+
+# Parte del contrato, no de un motor: las tablas de lecturas particionan por dia,
+# asi que un rango se resuelve con una consulta por dia. El tope evita que un
+# rango de un año dispare cientos de consultas (D31). Vive aca y no en la
+# implementacion Cassandra para que el servicio pueda rechazar el rango antes de
+# ir a la base, sin duplicar el numero ni conocer el motor (D45).
+MAX_DIAS_POR_CONSULTA = 31
+
+
+def dias_del_rango(desde: datetime, hasta: datetime) -> list[date]:
+    """Los dias (particiones) que toca un rango, ambos extremos incluidos.
+
+    Se cuentan dias de calendario en UTC, no tiempo transcurrido: de las 23:00
+    de un dia a las 01:00 del siguiente son dos particiones, aunque sean dos
+    horas.
+    """
+    primero = desde.astimezone(timezone.utc).date()
+    ultimo = hasta.astimezone(timezone.utc).date()
+    return [primero + timedelta(days=i) for i in range((ultimo - primero).days + 1)]
 
 
 class LecturaRepository(ABC):

@@ -109,110 +109,119 @@ db.alertas.createIndex({ sensor_id: 1, fecha: -1 });
 db.alertas.createIndex({ envio_id: 1, fecha: -1 });
 
 // ---------------------------------------------------------------------
-// 3) conversaciones + 4) mensajes (chat privado y grupal)
-//  conversaciones: una por par de usuarios (privado) o por grupo (grupal).
-//  mensajes: referencian la conversacion por id (referencing, porque crecen sin limite;
-//  embeberlos pasaria el limite de 16 MB por documento).
-//  Restriccion: un solo chat privado por par de usuarios (indice unico parcial sobre
-//  clave_participantes = ids ordenados y unidos por ":").
+// 3) conversaciones + 4) mensajes (mensajeria con las partes)
+//  El enunciado pide "Servicio de Mensajeria con las partes (Cliente -
+//  Proveedores - Operadores Logisticos)", asi que una conversacion es un hilo
+//  entre la empresa y UNA parte, identificada como en la cuenta corriente:
+//  parte_tipo + parte_id (D41). El modelo anterior era un chat entre usuarios
+//  (PRIVADA/GRUPAL), que no cubria a proveedores ni operadores porque no
+//  tienen usuarios en el modelo.
+//  Se conserva la decision estructural original: los mensajes REFERENCIAN la
+//  conversacion en vez de ir embebidos, porque crecen sin limite y embeberlos
+//  pasaria el limite de 16 MB por documento.
+//  envio_id opcional: el hilo puede ser sobre un envio puntual o general.
 // ---------------------------------------------------------------------
 crearColeccion("conversaciones", {
   bsonType: "object",
-  required: ["_id", "tipo", "participantes", "creada_en"],
+  required: ["_id", "parte_tipo", "parte_id", "asunto", "estado", "creada_en"],
   properties: {
     _id: { bsonType: "binData" },
-    tipo: { enum: ["PRIVADA", "GRUPAL"] },
-    participantes: { bsonType: "array", minItems: 2, items: { bsonType: "binData" } },
-    grupo_id: { bsonType: ["binData", "null"] },
-    clave_participantes: { bsonType: "string" },
+    parte_tipo: { enum: ["CLIENTE", "PROVEEDOR", "OPERADOR"] },
+    parte_id: { bsonType: "binData" },
+    asunto: { bsonType: "string", minLength: 1 },
+    envio_id: { bsonType: ["binData", "null"] },
+    estado: { enum: ["ABIERTA", "CERRADA"] },
     creada_en: { bsonType: "date" },
-    ultimo_mensaje: { bsonType: "object", properties: { fecha: { bsonType: "date" }, resumen: { bsonType: "string" } } }
+    actividad: { bsonType: "date" },
+    sin_leer: { bsonType: "int", minimum: 0 }
   }
 });
-db.conversaciones.createIndex({ participantes: 1, "ultimo_mensaje.fecha": -1 });   // multiclave: "mis conversaciones"
-db.conversaciones.createIndex({ clave_participantes: 1 }, { unique: true, partialFilterExpression: { tipo: "PRIVADA" } });
+db.conversaciones.createIndex({ actividad: -1 });                      // listado por actividad reciente
+db.conversaciones.createIndex({ parte_id: 1, actividad: -1 });         // "los hilos de este cliente"
+db.conversaciones.createIndex({ envio_id: 1 });                        // "los hilos de este envio"
+db.conversaciones.createIndex({ sin_leer: 1 });                        // bandeja de pendientes
 
 crearColeccion("mensajes", {
   bsonType: "object",
-  required: ["_id", "conversacion_id", "remitente_id", "contenido", "fecha"],
+  required: ["_id", "conversacion_id", "autor", "cuerpo", "fecha"],
   properties: {
     _id: { bsonType: "binData" },
     conversacion_id: { bsonType: "binData" },
-    remitente_id: { bsonType: "binData" },
-    contenido: { bsonType: "string", minLength: 1 },
+    autor: { enum: ["INTERNO", "PARTE"] },
+    autor_id: { bsonType: ["binData", "null"] },   // el usuario, cuando es INTERNO
+    cuerpo: { bsonType: "string", minLength: 1, maxLength: 2000 },
     fecha: { bsonType: "date" },
-    leido_por: { bsonType: "array", items: { bsonType: "binData" } }
+    leido: { bsonType: "bool" }
   }
 });
-db.mensajes.createIndex({ conversacion_id: 1, fecha: -1 });          // historial paginado de una conversacion
+db.mensajes.createIndex({ conversacion_id: 1, fecha: 1 });   // el hilo, como se escribio
 
 // ---------------------------------------------------------------------
-// 5) grupos_trabajo (integrantes embebidos: pocos y se leen siempre con el grupo)
-// ---------------------------------------------------------------------
-crearColeccion("grupos_trabajo", {
-  bsonType: "object",
-  required: ["_id", "nombre", "integrantes"],
-  properties: {
-    _id: { bsonType: "binData" },
-    nombre: { bsonType: "string", minLength: 1 },
-    integrantes: {
-      bsonType: "array", minItems: 1,
-      items: {
-        bsonType: "object", required: ["usuario_id"],
-        properties: { usuario_id: { bsonType: "binData" }, rol: { bsonType: "string" }, desde: { bsonType: "date" } }
-      }
-    },
-    creado_en: { bsonType: "date" }
-  }
-});
-db.grupos_trabajo.createIndex({ "integrantes.usuario_id": 1 });      // multiclave: grupos de un usuario
-db.grupos_trabajo.createIndex({ nombre: 1 }, { unique: true });
-
-// ---------------------------------------------------------------------
-// 6) reportes (parametros de forma libre segun el tipo de reporte -> documental)
+// 6) reportes (solicitud de reportes parametrizados y facturables)
+//  Los parametros cambian segun el reporte -rango de fechas, limite, eje- asi
+//  que en una tabla serian una columna por parametro casi siempre en NULL, o
+//  una columna JSON, que es un documento disfrazado. Documental.
+//
+//  Quien lo PIDE (usuario_id) y a quien se le FACTURA (titular_tipo +
+//  titular_id) son distintos: un operador de la empresa puede pedir un reporte
+//  para facturarselo a un cliente. El titular se identifica igual que en la
+//  cuenta corriente (D41), porque es ahi donde se imputa.
+//
+//  El estado sigue el ciclo del PEDIDO, no el de un archivo: SOLICITADA (se
+//  pidio y se cotizo), GENERADA (se calculo), FACTURADA (se emitio la factura)
+//  y CANCELADA. No hay "formato": no se exporta a PDF ni a CSV, el resultado se
+//  muestra en pantalla, y declarar un campo que nadie escribe seria prometer
+//  algo que el sistema no hace.
 // ---------------------------------------------------------------------
 crearColeccion("reportes", {
   bsonType: "object",
-  required: ["_id", "usuario_id", "tipo", "formato", "estado", "fecha_solicitud"],
+  required: ["_id", "tipo", "usuario_id", "titular_tipo", "titular_id",
+             "costo", "estado", "fecha_solicitud"],
   properties: {
     _id: { bsonType: "binData" },
+    tipo: { enum: ["ENVIOS_POR_PAIS", "ENVIOS_POR_ESTADO", "ENVIOS_POR_CLIENTE",
+                   "ENVIOS_DEMORADOS", "INCIDENTES_ABIERTOS", "TIEMPOS_POR_CLIENTE",
+                   "TIEMPO_PROMEDIO_ENTREGA", "RANKING_CLIENTES_VOLUMEN",
+                   "COSTOS_POR_TRANSPORTE", "RANKING_RUTAS_INCIDENTES",
+                   "PROMEDIO_INCIDENTES"] },
     usuario_id: { bsonType: "binData" },
-    tipo: { enum: ["ENVIOS_POR_PAIS", "ENVIOS_POR_ESTADO", "ENVIOS_POR_CLIENTE", "ENVIOS_DEMORADOS",
-                   "INCIDENTES_ABIERTOS", "TIEMPOS_POR_CLIENTE", "INCIDENTES_PROMEDIO",
-                   "TIEMPOS_PROMEDIO_ENTREGA", "COSTOS_POR_TRANSPORTE"] },
+    titular_tipo: { enum: ["CLIENTE", "PROVEEDOR", "OPERADOR"] },
+    titular_id: { bsonType: "binData" },
+    // string y no decimal/double: el driver no guarda Decimal sin configurarlo
+    // y un float perderia centavos (D15).
+    costo: { bsonType: "string" },
     parametros: { bsonType: "object" },
-    formato: { enum: ["PDF", "CSV", "XLSX"] },
-    estado: { enum: ["SOLICITADO", "GENERANDO", "COMPLETADO", "ERROR"] },
+    estado: { enum: ["SOLICITADA", "GENERADA", "FACTURADA", "CANCELADA"] },
     fecha_solicitud: { bsonType: "date" },
     fecha_generacion: { bsonType: ["date", "null"] },
-    resultado: { bsonType: ["object", "null"] }
+    filas: { bsonType: ["int", "null"] },
+    factura_id: { bsonType: ["binData", "null"] }
   }
 });
-db.reportes.createIndex({ usuario_id: 1, fecha_solicitud: -1 });
-db.reportes.createIndex({ estado: 1 });
+db.reportes.createIndex({ titular_id: 1, fecha_solicitud: -1 });   // "los reportes de este cliente"
+db.reportes.createIndex({ usuario_id: 1, fecha_solicitud: -1 });   // quien los pidio
+db.reportes.createIndex({ estado: 1 });                            // pendientes de generar / de facturar
 
 // ---------------------------------------------------------------------
-// 7) predicciones_riesgo
-//  Unico por (envio, dia): el proceso diario es IDEMPOTENTE (si se corre dos veces
-//  el mismo dia, la segunda no duplica, actualiza).
+// COLECCIONES QUE SE SACARON, Y POR QUE
+//
+//  grupos_trabajo: era parte del chat entre usuarios (conversaciones
+//    PRIVADA/GRUPAL). El enunciado pide mensajeria con las PARTES -clientes,
+//    proveedores, operadores- y esos no tienen usuarios en el modelo, asi que
+//    el chat entre usuarios se reemplazo (D57) y los grupos quedaron sin nada
+//    que agrupar.
+//
+//  predicciones_riesgo: guardaba una prediccion por envio y por dia. La
+//    prediccion de atrasos (D55) se calcula al consultar y NO se persiste, por
+//    la misma razon que la fecha de llegada estimada no se guarda en `envio`
+//    (D7): es un valor derivado, y guardarlo obligaria a recalcularlo cada vez
+//    que cambia un tramo o aparece un incidente. Ademas el esquema pedia
+//    probabilidades de 0 a 1 y un "modelo", que supone un entrenamiento que
+//    este sistema no hace a proposito: lo que hay es un puntaje explicable.
+//
+//  Las dos estaban declaradas y vacias. Una coleccion que nadie escribe es una
+//  promesa que el sistema no cumple, asi que se saca del modelo.
 // ---------------------------------------------------------------------
-crearColeccion("predicciones_riesgo", {
-  bsonType: "object",
-  required: ["_id", "envio_id", "dia_calculo", "probabilidad_demora", "riesgo_climatico", "riesgo_operativo", "fecha_calculo"],
-  properties: {
-    _id: { bsonType: "binData" },
-    envio_id: { bsonType: "binData" },
-    dia_calculo: { bsonType: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-    probabilidad_demora: { bsonType: "number", minimum: 0, maximum: 1 },
-    riesgo_climatico: { bsonType: "number", minimum: 0, maximum: 1 },
-    riesgo_operativo: { bsonType: "number", minimum: 0, maximum: 1 },
-    fecha_calculo: { bsonType: "date" },
-    modelo: { bsonType: "string" },
-    factores: { bsonType: "array", items: { bsonType: "string" } }
-  }
-});
-db.predicciones_riesgo.createIndex({ envio_id: 1, dia_calculo: 1 }, { unique: true });
-db.predicciones_riesgo.createIndex({ dia_calculo: 1, probabilidad_demora: -1 });   // top de riesgo del dia
 
 // =====================================================================
 // PARTICIONAMIENTO (documentado; en el Docker de un solo nodo no se activa)
@@ -221,7 +230,7 @@ db.predicciones_riesgo.createIndex({ dia_calculo: 1, probabilidad_demora: -1 });
 //    las escrituras nuevas caerian en el ultimo chunk.
 //    (para fragmentar hace falta un indice hashed sobre conversacion_id).
 //  - alertas:   shard key { sensor_id: "hashed" }.
-//  - incidentes, reportes, grupos_trabajo, predicciones_riesgo: volumen bajo;
+//  - incidentes, reportes, conversaciones: volumen bajo;
 //    alcanza con un replica set (primario + secundarios), sin sharding.
 // =====================================================================
 

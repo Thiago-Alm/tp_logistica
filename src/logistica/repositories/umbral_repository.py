@@ -20,4 +20,15 @@ class UmbralRepository(ABC):
         ...
 
     @abstractmethod
+    def eliminar(self, tipo_contenedor: str, magnitud: MagnitudUmbral) -> bool:
+        """Borra el umbral de esa combinacion. Devuelve si existia.
+
+        Es un borrado fisico y no una baja logica, a diferencia de clientes o
+        contenedores (D26): un umbral no lo referencia nadie, y una alerta ya
+        creada guarda en su detalle el limite que se violo, asi que no pierde
+        sentido si el umbral desaparece.
+        """
+        ...
+
+    @abstractmethod
     def listar(self) -> list[Umbral]: ...

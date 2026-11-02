@@ -136,6 +136,7 @@ class Contenedor:
         )
 
         return RedisCacheReportesRepository(self.redis)
+
     @cached_property
     def gps(self):
         from logistica.services.gps_service import GPSService
@@ -208,6 +209,121 @@ class Contenedor:
         )
 
         return MongoAlertaRepository(self.base_mongo)
+
+    @cached_property
+    def conversaciones(self):
+        from logistica.infrastructure.mongo.conversacion_repository import (
+            MongoConversacionRepository,
+        )
+
+        return MongoConversacionRepository(self.base_mongo)
+
+    @cached_property
+    def mensajeria(self):
+        """Mensajeria con las partes. Las conversaciones viven en MongoDB y
+        quienes conversan en PostgreSQL (D57)."""
+        from logistica.services.mensajeria_service import MensajeriaService
+
+        return MensajeriaService(self.conversaciones, self.unidad_de_trabajo)
+
+    @cached_property
+    def predicciones(self):
+        """Prediccion de atrasos: cruza envios y tramos de PostgreSQL con los
+        incidentes abiertos de MongoDB (D55)."""
+        from logistica.services.prediccion_service import PrediccionService
+
+        return PrediccionService(self.incidentes, self.unidad_de_trabajo)
+
+    @cached_property
+    def solicitudes_reporte(self):
+        from logistica.infrastructure.mongo.solicitud_reporte_repository import (
+            MongoSolicitudReporteRepository,
+        )
+
+        return MongoSolicitudReporteRepository(self.base_mongo)
+
+    @cached_property
+    def solicitudes(self):
+        """Solicitud, generacion y facturacion de reportes parametrizados.
+
+        Reusa los servicios que ya saben calcular cada reporte en vez de
+        consultar las bases por su cuenta (D54)."""
+        from logistica.services.solicitud_reporte_service import (
+            SolicitudReporteService,
+        )
+
+        return SolicitudReporteService(
+            self.solicitudes_reporte,
+            self.unidad_de_trabajo,
+            reportes=self.reportes,
+            incidentes=self.incidentes_service,
+            facturacion=self.facturacion,
+            envios=self.envios,
+        )
+
+    @cached_property
+    def contenedores_service(self):
+        from logistica.services.contenedor_service import ContenedorService
+
+        return ContenedorService(self.unidad_de_trabajo)
+
+    @cached_property
+    def proveedores_service(self):
+        from logistica.services.parte_service import ProveedorService
+
+        return ProveedorService(self.unidad_de_trabajo)
+
+    @cached_property
+    def operadores_service(self):
+        from logistica.services.parte_service import OperadorService
+
+        return OperadorService(self.unidad_de_trabajo)
+
+    @cached_property
+    def incidentes_service(self):
+        """Incidentes: viven en MongoDB, pero el snapshot del envio y el
+        denominador de los promedios salen de PostgreSQL."""
+        from logistica.services.incidente_service import IncidenteService
+
+        return IncidenteService(self.incidentes, self.unidad_de_trabajo)
+
+    @cached_property
+    def monitoreo(self):
+        """Monitoreo IoT: lecturas en Cassandra, umbrales y alertas en MongoDB,
+        ficha del sensor en PostgreSQL."""
+        from logistica.services.monitoreo_service import MonitoreoService
+
+        return MonitoreoService(
+            self.lecturas,
+            self.umbrales,
+            self.alertas,
+            self.unidad_de_trabajo,
+            deteccion_inactividad=self.deteccion_inactividad,
+            deteccion_anomalias=self.deteccion_anomalias,
+        )
+
+    @cached_property
+    def deteccion_anomalias(self):
+        """Compara cada lectura con el umbral de su tipo de contenedor.
+
+        El servicio no consulta PostgreSQL: recibe una funcion que dice de que
+        tipo es cada contenedor. Aca se arma con el repositorio, cacheando el
+        mapa una vez por proceso: los tipos de contenedor no cambian mientras
+        corre una deteccion.
+        """
+        from logistica.services.deteccion_anomalias_service import (
+            DeteccionAnomaliasService,
+        )
+
+        tipos: dict = {}
+
+        def tipo_de_contenedor(contenedor_id):
+            if not tipos:
+                with self.unidad_de_trabajo as uow:
+                    tipos.update({c.id: c.tipo for c in uow.contenedores.listar()})
+            return tipos.get(contenedor_id)
+
+        return DeteccionAnomaliasService(self.umbrales, self.alertas, tipo_de_contenedor)
 
     # -- Sincronizacion ------------------------------------------------------
 

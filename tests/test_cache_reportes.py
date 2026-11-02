@@ -5,13 +5,14 @@ que cuenta cuantas veces se consulto PostgreSQL. Las del repositorio van contra
 un Redis real y se saltean si no esta arriba.
 """
 
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
 from redis import Redis
-from redis.exceptions import ConnectionError, TimeoutError
+from redis.exceptions import ConnectionError, RedisError, TimeoutError
 
 from logistica.config import settings
 from logistica.domain.envio import EstadoEnvio
@@ -245,15 +246,22 @@ def cache_redis():
         host=settings.redis_host, port=settings.redis_port,
         socket_connect_timeout=1, socket_timeout=1,
     )
+    try:
+        cliente.ping()
+    except (ConnectionError, TimeoutError):
+        cliente.close()
+        pytest.skip("Redis no disponible: docker compose up -d redis")
+
     clave = f"cache:reportes:test:{uuid4()}"
     try:
-        try:
-            cliente.ping()
-        except (ConnectionError, TimeoutError):
-            pytest.skip("Redis no disponible: docker compose up -d redis")
         yield RedisCacheReportesRepository(cliente), cliente, clave
     finally:
-        cliente.delete(clave)
+        # El ping va afuera del try: si fallaba, el delete de este finally
+        # chocaba contra el Redis caido y convertia el skip en ERROR. Y si
+        # Redis se cae en medio de la prueba, la limpieza no debe tapar el
+        # resultado real.
+        with suppress(RedisError):
+            cliente.delete(clave)
         cliente.close()
 
 
