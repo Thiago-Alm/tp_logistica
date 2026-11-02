@@ -136,6 +136,30 @@ def _solo_las_lineas_ok(salida: str) -> str:
     )
 
 
+def lecturas_recientes() -> int:
+    """Cuantas posiciones GPS hay en la ventana que el menu usa por defecto.
+
+    Las fechas de PostgreSQL son relativas al dia de carga (D56), pero las
+    lecturas de Cassandra llevan la fecha real en que se generaron. O sea que
+    los datos IoT **si envejecen**: unos dias despues de correr el simulador la
+    consulta por defecto devuelve poco, y despues nada.
+    """
+    guion = (
+        "from datetime import datetime, timedelta, timezone\n"
+        "from logistica.container import Contenedor\n"
+        "from logistica.domain.contenedor import EstadoContenedor\n"
+        "c = Contenedor()\n"
+        "with c.unidad_de_trabajo as uow:\n"
+        "    cs = [x for e in EstadoContenedor"
+        " for x in uow.contenedores.listar_por_estado(e)]\n"
+        "h = datetime.now(timezone.utc); d = h - timedelta(days=6)\n"
+        "print(sum(len(c.gps.recorrido(x.id, d, h)) for x in cs))\n"
+    )
+    resultado = ejecutar([sys.executable, "-c", guion])
+    numeros = [x for x in (resultado.stdout or "").split() if x.isdigit()]
+    return int(numeros[-1]) if numeros else 0
+
+
 def recargar_datos() -> bool:
     print("    Aplicando esquema y datos semilla...")
     resultado = ejecutar([sys.executable, "scripts/aplicar_esquema.py"])
@@ -210,6 +234,16 @@ def main() -> int:
         paso(5, "Datos de prueba")
         if not recargar_datos():
             return 1
+
+    paso(6 if opciones.recargar else 5, "Datos IoT")
+    posiciones = lecturas_recientes()
+    if posiciones < 20:
+        print(f"    Solo hay {posiciones} posiciones GPS en los ultimos 7 dias.")
+        print("    Las lecturas de Cassandra llevan fecha real, asi que envejecen.")
+        print("    Genera datos frescos antes de mostrar nada:\n")
+        print("      python -m logistica.jobs.simulador_iot --ciclos 30 --intervalo 0\n")
+    else:
+        print(f"    {posiciones} posiciones GPS en los ultimos 7 dias. Alcanza.")
 
     print("\n" + "=" * 70)
     print("  Todo listo. Para entrar:")
