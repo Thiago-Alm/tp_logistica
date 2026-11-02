@@ -120,8 +120,10 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
 
         hasta_defecto = datetime.now(timezone.utc)
         desde_defecto = hasta_defecto - timedelta(days=DIAS_POR_DEFECTO - 1)
-        texto_desde = consola.pedir("Desde (Enter para el valor por defecto)").strip()
-        texto_hasta = consola.pedir("Hasta (Enter para ahora)").strip()
+        texto_desde = consola.pedir(
+            "Desde", obligatorio=False
+        ).strip()
+        texto_hasta = consola.pedir("Hasta", obligatorio=False).strip()
         try:
             desde = datetime.fromisoformat(texto_desde) if texto_desde else desde_defecto
             hasta = datetime.fromisoformat(texto_hasta) if texto_hasta else hasta_defecto
@@ -353,8 +355,10 @@ def construir(servicio: MonitoreoService, rol_nivel: int = NIVEL_ADMINISTRADOR) 
             f"{sensor.numero_serie}: {sensor.modelo}, cada "
             f"{sensor.intervalo_reporte_segundos}s. Enter deja igual."
         )
-        modelo = consola.pedir(f"Modelo [{sensor.modelo}]").strip() or None
-        texto = consola.pedir(f"Intervalo [{sensor.intervalo_reporte_segundos}]").strip()
+        modelo = consola.pedir(f"Modelo [{sensor.modelo}]", obligatorio=False).strip() or None
+        texto = consola.pedir(
+            f"Intervalo [{sensor.intervalo_reporte_segundos}]", obligatorio=False
+        ).strip()
         intervalo = None
         if texto:
             try:

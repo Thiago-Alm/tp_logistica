@@ -109,8 +109,8 @@ def construir(servicio: ContenedorService, rol_nivel: int = NIVEL_ADMINISTRADOR)
             f"{contenedor.codigo_iso}: {contenedor.tipo}, "
             f"{contenedor.capacidad:.1f} t. Enter deja el valor actual."
         )
-        tipo = consola.pedir(f"Tipo [{contenedor.tipo}]").strip() or None
-        texto = consola.pedir(f"Capacidad [{contenedor.capacidad:.1f}]").strip()
+        tipo = consola.pedir(f"Tipo [{contenedor.tipo}]", obligatorio=False).strip() or None
+        texto = consola.pedir(f"Capacidad [{contenedor.capacidad:.1f}]", obligatorio=False).strip()
         capacidad = None
         if texto:
             try:

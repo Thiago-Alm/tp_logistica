@@ -94,7 +94,9 @@ def construir(
             "razon_social": consola.pedir("Razon social"),
             "email": consola.pedir("Email"),
             "pais": consola.pedir("Pais"),
-            "telefono": consola.pedir("Telefono (Enter para omitir)").strip() or None,
+            "telefono": consola.pedir(
+                "Telefono", obligatorio=False
+            ).strip() or None,
         }
         if con_servicio:
             datos["tipo_servicio"] = consola.pedir(
@@ -129,16 +131,20 @@ def construir(
             return
         consola.aviso(f"{parte.razon_social} ({parte.cuit}). Enter deja el valor actual.")
         cambios = {
-            "razon_social": consola.pedir(f"Razon social [{parte.razon_social}]").strip()
+            "razon_social": consola.pedir(
+                f"Razon social [{parte.razon_social}]", obligatorio=False
+            ).strip()
             or None,
-            "email": consola.pedir(f"Email [{parte.email}]").strip() or None,
-            "pais": consola.pedir(f"Pais [{parte.pais}]").strip() or None,
-            "telefono": consola.pedir(f"Telefono [{parte.telefono or '-'}]").strip()
+            "email": consola.pedir(f"Email [{parte.email}]", obligatorio=False).strip() or None,
+            "pais": consola.pedir(f"Pais [{parte.pais}]", obligatorio=False).strip() or None,
+            "telefono": consola.pedir(
+                f"Telefono [{parte.telefono or '-'}]", obligatorio=False
+            ).strip()
             or None,
         }
         if con_servicio:
             cambios["tipo_servicio"] = consola.pedir(
-                f"Tipo de servicio [{parte.tipo_servicio}]"
+                f"Tipo de servicio [{parte.tipo_servicio}]", obligatorio=False
             ).strip() or None
         try:
             actualizada = servicio.modificar(parte.id, **cambios)

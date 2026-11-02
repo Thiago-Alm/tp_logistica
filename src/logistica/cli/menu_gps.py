@@ -30,8 +30,10 @@ def construir(servicio: GPSService) -> None:
         hasta_por_defecto = datetime.now(timezone.utc)
         desde_por_defecto = hasta_por_defecto - timedelta(days=DIAS_POR_DEFECTO - 1)
 
-        texto_desde = consola.pedir("Desde (Enter para el valor por defecto)").strip()
-        texto_hasta = consola.pedir("Hasta (Enter para ahora)").strip()
+        texto_desde = consola.pedir(
+            "Desde", obligatorio=False
+        ).strip()
+        texto_hasta = consola.pedir("Hasta", obligatorio=False).strip()
         try:
             desde = datetime.fromisoformat(texto_desde) if texto_desde else desde_por_defecto
             hasta = datetime.fromisoformat(texto_hasta) if texto_hasta else hasta_por_defecto

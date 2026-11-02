@@ -112,7 +112,7 @@ def construir(
 
         asunto = consola.pedir("Asunto")
         cuerpo = consola.pedir("Mensaje")
-        texto_envio = consola.pedir("ID del envio (Enter si es general)").strip()
+        texto_envio = consola.pedir("ID del envio", obligatorio=False).strip()
         envio_id = None
         if texto_envio:
             try:

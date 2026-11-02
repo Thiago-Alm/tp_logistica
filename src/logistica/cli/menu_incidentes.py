@@ -75,7 +75,9 @@ def construir(
             return
         descripcion = consola.pedir("Descripcion")
 
-        texto_contenedor = consola.pedir("ID del contenedor (Enter si no aplica)").strip()
+        texto_contenedor = consola.pedir(
+            "ID del contenedor", obligatorio=False
+        ).strip()
         contenedor_id = None
         if texto_contenedor:
             try:

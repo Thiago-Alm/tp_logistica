@@ -49,7 +49,7 @@ def _elegir_de(valores: list, etiqueta: str, texto=str):
 def _pedir_fecha(etiqueta: str) -> tuple[bool, datetime | None]:
     """Devuelve (valida, fecha). Enter deja la fecha en None, que para los
     reportes significa "sin limite por ese lado"."""
-    texto = consola.pedir(f"{etiqueta} (Enter para no acotar)").strip()
+    texto = consola.pedir(f"{etiqueta}", obligatorio=False).strip()
     if not texto:
         return True, None
     try:
@@ -140,7 +140,7 @@ def construir(
                 if fecha is not None:
                     parametros[clave] = fecha
         if especificacion.acepta_limite:
-            texto = consola.pedir("Limite (Enter para 10)").strip()
+            texto = consola.pedir("Limite (por defecto 10)", obligatorio=False).strip()
             if texto:
                 try:
                     parametros["limite"] = int(texto)

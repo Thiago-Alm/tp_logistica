@@ -188,9 +188,11 @@ def construir(
         if usuario is None:
             return
         consola.aviso(f"{usuario.nombre_completo} <{usuario.email}>. Enter deja igual.")
-        nombre = consola.pedir(f"Nombre [{usuario.nombre}]").strip() or None
-        apellido = consola.pedir(f"Apellido [{usuario.apellido}]").strip() or None
-        email = consola.pedir(f"Email [{usuario.email}]").strip() or None
+        nombre = consola.pedir(f"Nombre [{usuario.nombre}]", obligatorio=False).strip() or None
+        apellido = consola.pedir(
+            f"Apellido [{usuario.apellido}]", obligatorio=False
+        ).strip() or None
+        email = consola.pedir(f"Email [{usuario.email}]", obligatorio=False).strip() or None
 
         rol_id = None
         roles = servicio.listar_roles()
@@ -198,7 +200,9 @@ def construir(
             ["#", "ROL", "NIVEL"],
             [[str(i), r.descripcion, str(r.nivel_permisos)] for i, r in enumerate(roles, 1)],
         )
-        eleccion = consola.pedir("Numero del rol nuevo (Enter deja el actual)").strip()
+        eleccion = consola.pedir(
+            "Numero del rol nuevo", obligatorio=False
+        ).strip()
         if eleccion:
             if not eleccion.isdigit() or not 1 <= int(eleccion) <= len(roles):
                 consola.error("Rol invalido.")
@@ -264,8 +268,10 @@ def construir(
                 f"Cambiar el nivel de {rol.descripcion} le cambia el menu a "
                 f"{cuantos} usuario(s)."
             )
-        descripcion = consola.pedir(f"Descripcion [{rol.descripcion}]").strip() or None
-        texto = consola.pedir(f"Nivel [{rol.nivel_permisos}]").strip()
+        descripcion = consola.pedir(
+            f"Descripcion [{rol.descripcion}]", obligatorio=False
+        ).strip() or None
+        texto = consola.pedir(f"Nivel [{rol.nivel_permisos}]", obligatorio=False).strip()
         nivel = None
         if texto:
             try:
