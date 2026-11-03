@@ -3,10 +3,10 @@
     python scripts/preparar_demo.py            # levanta y verifica
     python scripts/preparar_demo.py --recargar # ademas recarga los datos semilla
 
-Existe por un motivo concreto: la primera condicion de la defensa es que la
-aplicacion funcione. Los dos problemas que nos rompieron el arranque -un
-contenedor ajeno ocupando un puerto, y Cassandra tardando en aceptar conexiones-
-no dan un error claro, asi que este script los detecta y los nombra.
+Existe porque los dos problemas que mas veces nos rompieron el arranque no dan
+un error claro: un contenedor ajeno ocupando uno de nuestros puertos, y un
+contenedor propio que quedo "Up" sin publicar el suyo. Este script los detecta,
+los nombra y dice el comando exacto para arreglarlos.
 """
 from __future__ import annotations
 

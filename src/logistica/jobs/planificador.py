@@ -2,8 +2,9 @@
 
 El enunciado pide cuatro: generacion automatica de facturas, deteccion de
 sensores inactivos, cierre mensual de cuentas corrientes y prediccion diaria de
-riesgos. A esos se suma la propagacion del Outbox, que es lo que mantiene
-sincronizados los motores.
+riesgos. A esos se suman la propagacion del Outbox -que es lo que mantiene
+sincronizados los motores- y dos controles de integridad: el chequeo de
+consistencia del grafo y la verificacion de saldos.
 
 Cada proceso corre bajo un lock de Redis (D14): dos ejecuciones simultaneas de
 la facturacion generarian facturas duplicadas. El lock se toma por nombre de
@@ -35,6 +36,8 @@ MINUTOS_ENTRE_CHEQUEOS = 30
 HORA_DE_FACTURACION = 2
 # El cierre mensual, el primer dia de cada mes.
 HORA_DE_CIERRE = 3
+# La prediccion de riesgos, al empezar el dia operativo.
+HORA_DE_PREDICCION = 6
 
 
 class Planificador:
@@ -157,6 +160,35 @@ class Planificador:
             )
 
         self._con_lock("deteccion_sensores_inactivos", 120, tarea)
+    def predecir_riesgos(self) -> None:
+        """Deja en el log el cuadro de riesgo de los envios en curso.
+
+        No guarda nada: la prediccion se calcula al consultar y es un valor
+        derivado (D55), igual que la fecha de llegada estimada (D7). Lo que
+        aporta correrla a diario es dejar asentado como estaba la operacion
+        cada manana, y que los envios en riesgo aparezcan sin que nadie entre
+        a mirar.
+        """
+
+        def tarea() -> None:
+            predicciones = self._contenedor.predicciones.predecir_atrasos()
+            en_riesgo = [p for p in predicciones if p.nivel.necesita_atencion()]
+            for prediccion in en_riesgo:
+                log.warning(
+                    "Envio %s en riesgo %s (%s puntos): %s",
+                    prediccion.envio_id,
+                    prediccion.nivel.value,
+                    prediccion.puntaje,
+                    "; ".join(prediccion.motivos),
+                )
+            log.info(
+                "Prediccion diaria: %s envios en curso, %s necesitan atencion",
+                len(predicciones),
+                len(en_riesgo),
+            )
+
+        self._con_lock("prediccion_riesgos", 3600, tarea)
+
     # --- Arranque ---------------------------------------------------------
 
     def registrar(self) -> None:
@@ -212,8 +244,14 @@ class Planificador:
             coalesce=True,
             max_instances=1,
         )
-        # Pendientes de esta semana, a cargo de los demas:
-        #   - prediccion diaria de riesgos (Mati, cron diario)
+        self._scheduler.add_job(
+            self.predecir_riesgos,
+            "cron",
+            hour=HORA_DE_PREDICCION,
+            id="prediccion_riesgos",
+            coalesce=True,
+            max_instances=1,
+        )
 
     def arrancar(self) -> None:
         self.registrar()

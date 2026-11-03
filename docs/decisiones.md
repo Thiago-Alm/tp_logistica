@@ -1,9 +1,9 @@
 # Registro de decisiones de diseño
 
 Cada decisión de diseño que tomamos queda acá, con el motivo. No es burocracia:
-la nota sale de una **defensa individual** donde cualquiera puede ser preguntado
-sobre cualquier parte, y este archivo es la fuente del informe técnico y de la
-justificación de persistencia políglota (entregables 1 y 2 del enunciado).
+cualquiera del equipo puede tener que explicar cualquier parte del sistema, y
+este archivo es la fuente del informe técnico y de la justificación de
+persistencia políglota (entregables 1 y 2 del enunciado).
 
 Formato de cada entrada: **qué se decidió**, **por qué**, **qué consecuencias
 tiene** y **a quién le cambia el trabajo**.
@@ -304,7 +304,7 @@ leerlas.
    "clientes, operadores y envíos". Sin dato que la respalde ni requisito que la
    pida, esa relación es complejidad gratuita.
 
-**Nota de defensa:** este camino de tres saltos es la mejor justificación
+**Vale la pena notarlo:** este camino de tres saltos es la mejor justificación
 concreta que tenemos para Neo4j — en SQL es un join de cuatro tablas que empeora
 si se quiere profundidad variable.
 
@@ -340,7 +340,7 @@ movimientos de un contenedor (D11).
 **Por que un snapshot y no una referencia:** es el patron documental por
 excelencia. El snapshot **no se actualiza** si despues cambia la ruta del envio,
 y eso es intencional: un incidente registra las circunstancias de cuando
-ocurrio, no las actuales. Es la respuesta a la pregunta previsible en la defensa
+ocurrio, no las actuales. Es la respuesta a la pregunta previsible
 ("¿y si despues cambia la ruta?").
 
 **Imprecision aceptada:** el enunciado liga el incidente al **envio**, no al
@@ -427,7 +427,7 @@ enunciado y ningún reporte agrupa por él: agregarlo sería un supuesto sin
 requisito detrás. La presencia o ausencia de `fecha_llegada_real` ya responde si
 el tramo se ejecutó.
 
-**Consecuencia — asimetría con `Envio`, a tener presente en la defensa:** en
+**Consecuencia — asimetría con `Envio`, a tener presente:** en
 `Envio` la regla es bicondicional (hay `fecha_llegada_real` **si y solo si** el
 estado es `ENTREGADO`), porque hay dos campos que pueden contradecirse. En
 `Tramo` no hay estado, así que solo se exige coherencia temporal: si la fecha
@@ -604,7 +604,7 @@ ubicacion, operador y proveedor. Los datos semilla de los otros motores usan
 (`aaaaaaaa-...`, `cccccccc-...`) distinto del de Postgres (`a0000000-...`,
 `20000000-...`). Con ids que no coinciden **no se puede demostrar nada de punta
 a punta**: un incidente de Mongo apuntaba a un envio que no existia en Postgres.
-Para la defensa hay que poder seguir un mismo envio por las cinco bases.
+Hay que poder seguir un mismo envio por las cinco bases.
 
 **Las entidades propias de MongoDB** (conversacion, mensaje, incidente, alerta,
 reporte, prediccion) conservan sus propios ids: Mongo es su dueno y nadie mas
@@ -719,7 +719,7 @@ ejemplo con pinta de bcrypt que no verificaban con nada. Se reemplazaron por
 hashes PBKDF2 reales. **La contrasena de los cuatro usuarios semilla es
 `demo1234`**, y la autenticacion de la aplicacion funciona con ellos.
 
-**Nota para la defensa:** `autenticar()` devuelve el **mismo** mensaje de error
+**Nota:** `autenticar()` devuelve el **mismo** mensaje de error
 para "ese email no existe" y para "contrasena incorrecta". Distinguirlos le
 confirma a un atacante que un email esta registrado. Hay un test que compara los
 dos mensajes.
@@ -798,7 +798,7 @@ no corrieron nunca: la base quedo vacia sin que nadie se enterara.
 
 `python scripts/aplicar_esquema.py` crea el esquema y carga los datos semilla;
 con `--reiniciar` borra todo y lo rehace. Es idempotente y sirve tanto para
-montar el entorno de cero como para dejarlo limpio antes de la defensa.
+montar el entorno de cero como para dejarlo limpio antes de una entrega.
 
 ---
 
@@ -1115,7 +1115,7 @@ en Cassandra, en `eventos_por_contenedor`, que registra el movimiento real de
 cada contenedor. El grafo responde lo que puede responder con los datos que
 proyecta, y la granularidad mayor se consulta donde esta.
 
-**Leccion para la defensa:** una consulta que devuelve vacio no siempre es una
+**Leccion:** una consulta que devuelve vacio no siempre es una
 consulta sin resultados. Antes de dar por buena una consulta sobre un grafo
 conviene verificar que las relaciones que nombra existan de verdad:
 
@@ -1302,7 +1302,7 @@ Al probar el simulador contra las bases reales aparecieron tres cosas:
    maneja un pool interno: abrir un cliente por repositorio multiplicaria las
    conexiones sin ningun beneficio.
 
-**Leccion que vale para la defensa:** una configuracion incompleta es peor que una
+**Leccion:** una configuracion incompleta es peor que una
 ausente. Si el umbral no existiera, el sistema fallaria y alguien lo notaria; como
 existe para algunos tipos y no para otros, funcionaba "bien" y no evaluaba la mayor
 parte de las lecturas. Por eso el servicio registra un `WARNING` cuando no encuentra
@@ -1486,7 +1486,7 @@ le contaria a cualquiera que entre que existen y que hay detras.
 una herramienta interna: un cliente no opera el back-office. El usuario
 `mariana@agroglobal.com` autentica correctamente y la aplicacion le dice que su
 rol no tiene acceso a ninguna seccion. **Es el caso que demuestra en vivo que el
-control de permisos existe**, y conviene mostrarlo en la defensa.
+control de permisos existe**, y conviene mostrarlo al presentar el sistema.
 
 ### Por que la sesion es una entidad y vive en Redis
 
@@ -1608,7 +1608,7 @@ enumeraciones ni `timedelta`. Al deserializar se vuelven a armar, porque el rest
 de la aplicacion espera los objetos del dominio (D33) y porque un `Decimal` que
 volviera como float rompería D15.
 
-**La consecuencia que hay que saber defender:** durante esos 60 segundos un
+**La consecuencia, que hay que tener presente:** durante esos 60 segundos un
 reporte puede mostrar datos anteriores al ultimo cambio en PostgreSQL. **No hay
 invalidacion inmediata.** Es aceptable porque son reportes de lectura para
 analisis, no pantallas de operacion: nadie decide sobre un envio puntual mirando
@@ -2401,7 +2401,7 @@ Hay un test que verifica ese orden.
 
 En un sistema real entraria por un correo o una API. Aca hay una opcion de menu
 para registrarlo, que es lo que permite mostrar el ida y vuelta completo en la
-defensa: abrir el hilo, recibir, ver la bandeja de pendientes, responder y
+completo: abrir el hilo, recibir, ver la bandeja de pendientes, responder y
 marcar como leido.
 
 ---

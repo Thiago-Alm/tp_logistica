@@ -85,15 +85,43 @@ def test_duracion_invalida(cliente_redis):
 
 def test_sesion_vence_realmente(cliente_redis):
     """Lo que justifica guardar las sesiones en Redis: vencen solas, sin que
-    ningun proceso las barra."""
+    ningun proceso las barra.
+
+    Se espera a que **Redis borre la clave**, no a que el servicio deje de
+    devolverla. Son dos cosas distintas y en ese orden: el servicio filtra por
+    `fecha_fin` apenas vence, y Redis borra la clave cuando le toca, porque su
+    expiracion es perezosa. En el medio hay una ventana donde `consultar()`
+    devuelve None y la clave todavia existe.
+    """
     servicio = SesionService(RedisSesionRepository(cliente_redis), ttl_segundos=1)
     sesion = servicio.iniciar(uuid4())
+    clave = f"sesion:{sesion.id}"
     try:
         assert servicio.consultar(sesion.id) is not None
-        limite = time.monotonic() + 3
-        while servicio.consultar(sesion.id) is not None and time.monotonic() < limite:
+
+        limite = time.monotonic() + 5
+        while cliente_redis.exists(clave) and time.monotonic() < limite:
             time.sleep(0.05)
+
+        assert not cliente_redis.exists(clave), "Redis no borro la clave al vencer"
         assert servicio.consultar(sesion.id) is None
         assert servicio.cerrar(sesion.id) is False
     finally:
-        cliente_redis.delete(f"sesion:{sesion.id}")
+        cliente_redis.delete(clave)
+
+
+def test_una_sesion_vencida_deja_de_consultarse_antes_de_que_redis_la_borre(
+    cliente_redis,
+):
+    """La ventana del medio, explicita: el servicio no espera a Redis."""
+    servicio = SesionService(RedisSesionRepository(cliente_redis), ttl_segundos=1)
+    sesion = servicio.iniciar(uuid4())
+    clave = f"sesion:{sesion.id}"
+    try:
+        limite = time.monotonic() + 5
+        while servicio.consultar(sesion.id) is not None and time.monotonic() < limite:
+            time.sleep(0.02)
+        # Vencio para el dominio; que Redis ya la haya barrido o no es otra cosa.
+        assert servicio.consultar(sesion.id) is None
+    finally:
+        cliente_redis.delete(clave)
