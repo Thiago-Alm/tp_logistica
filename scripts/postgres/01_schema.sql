@@ -299,6 +299,23 @@ CREATE TABLE factura (
     CONSTRAINT chk_factura_fechas CHECK (fecha_vencimiento >= fecha_emision)
 );
 
+-- 3.1.1 Detalle de la factura (1 factura --- N detalles)
+-- El importe_total de la factura es la suma de estas lineas. Se guarda ademas
+-- de derivarse, por el mismo motivo que el saldo de la cuenta corriente (D41):
+-- listar facturas no deberia obligar a sumar los detalles de cada una.
+-- ON DELETE CASCADE: un detalle no existe sin su factura, es parte de ella.
+CREATE TABLE detalle_factura (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    factura_id UUID NOT NULL,
+    orden INTEGER NOT NULL,
+    descripcion VARCHAR(200) NOT NULL,
+    importe NUMERIC(12,2) NOT NULL,
+    CONSTRAINT fk_detalle_factura FOREIGN KEY (factura_id) REFERENCES factura(id) ON DELETE CASCADE,
+    CONSTRAINT uq_detalle_factura_orden UNIQUE (factura_id, orden),
+    CONSTRAINT chk_detalle_importe_positivo CHECK (importe > 0),
+    CONSTRAINT chk_detalle_descripcion CHECK (length(trim(descripcion)) > 0)
+);
+
 -- 3.2 Pagos
 -- No lleva titular: se deriva de la factura, que es su única dueña.
 CREATE TABLE pago (
@@ -401,6 +418,7 @@ CREATE INDEX idx_envio_activos ON envio (estado)
 CREATE INDEX idx_tramo_envio_estimada ON tramo (envio_id, fecha_llegada_estimada);
 
 -- Reporte: ranking de clientes por volumen transportado
+CREATE INDEX idx_detalle_factura ON detalle_factura (factura_id, orden);
 CREATE INDEX idx_ec_envio ON envio_contenedor (envio_id);
 CREATE INDEX idx_ec_contenedor ON envio_contenedor (contenedor_id);
 

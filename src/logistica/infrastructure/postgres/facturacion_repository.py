@@ -7,6 +7,7 @@ import psycopg
 
 from logistica.domain.facturacion import (
     CuentaCorriente,
+    DetalleFactura,
     EstadoFactura,
     Factura,
     MedioPago,
@@ -113,6 +114,35 @@ class PostgresFacturaRepository(FacturaRepository):
             (factura.importe_total, factura.estado.value,
              factura.fecha_vencimiento, factura.id),
         )
+
+    @traducir_errores
+    def guardar_detalles(self, detalles: list[DetalleFactura]) -> None:
+        if not detalles:
+            return
+        with self._conexion.cursor() as cursor:
+            cursor.executemany(
+                """insert into detalle_factura
+                     (id, factura_id, orden, descripcion, importe)
+                   values (%s, %s, %s, %s, %s)""",
+                [
+                    (d.id, d.factura_id, d.orden, d.descripcion, d.importe)
+                    for d in detalles
+                ],
+            )
+
+    @traducir_errores
+    def listar_detalles(self, factura_id: UUID) -> list[DetalleFactura]:
+        filas = self._conexion.execute(
+            """select id, factura_id, orden, descripcion, importe
+               from detalle_factura where factura_id = %s order by orden""",
+            (factura_id,),
+        ).fetchall()
+        return [
+            DetalleFactura(
+                id=f[0], factura_id=f[1], orden=f[2], descripcion=f[3], importe=f[4]
+            )
+            for f in filas
+        ]
 
     @traducir_errores
     def obtener(self, id: UUID) -> Factura | None:

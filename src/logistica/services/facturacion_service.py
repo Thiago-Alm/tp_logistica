@@ -21,6 +21,7 @@ from logistica.domain.evento_outbox import TipoAgregado
 from logistica.domain.facturacion import (
     CERO,
     CuentaCorriente,
+    DetalleFactura,
     EstadoFactura,
     Factura,
     MedioPago,
@@ -241,12 +242,26 @@ class FacturacionService:
         descripcion: str,
         envio_id: UUID | None = None,
         momento: datetime | None = None,
+        detalles: list[tuple[str, Decimal]] | None = None,
     ) -> Factura:
         """Emite una factura y la imputa a la cuenta corriente del titular.
 
-        Las tres escrituras van en la misma transaccion. Si el commit falla, no
-        queda ni la factura, ni el movimiento, ni el saldo cambiado.
+        `detalles` son las lineas de la factura, como (descripcion, importe).
+        **El total sale de sumarlas**: si se pasan, `importe` se ignora. Si no
+        se pasan, la factura queda con una sola linea hecha de `importe` y
+        `descripcion`, para que **ninguna factura exista sin detalle** (D69).
+
+        Las cuatro escrituras van en la misma transaccion. Si el commit falla,
+        no queda ni la factura, ni sus detalles, ni el movimiento, ni el saldo
+        cambiado.
         """
+        lineas = detalles if detalles else [(descripcion, importe)]
+        for texto, monto in lineas:
+            if monto <= CERO:
+                raise ValidacionError(
+                    f"El importe de '{texto}' debe ser positivo: {monto}"
+                )
+        importe = sum((monto for _, monto in lineas), CERO)
         if importe <= CERO:
             raise ValidacionError(f"El importe a facturar debe ser positivo: {importe}")
         momento = momento or datetime.now(timezone.utc)
@@ -287,6 +302,18 @@ class FacturacionService:
             cuenta.aplicar(movimiento)
 
             uow.facturas.guardar(factura)
+            uow.facturas.guardar_detalles(
+                [
+                    DetalleFactura(
+                        id=uuid4(),
+                        factura_id=factura.id,
+                        orden=i,
+                        descripcion=texto,
+                        importe=monto,
+                    )
+                    for i, (texto, monto) in enumerate(lineas, 1)
+                ]
+            )
             uow.movimientos.guardar(movimiento)
             uow.cuentas.actualizar(cuenta)
             uow.commit()
@@ -325,14 +352,19 @@ class FacturacionService:
             raise ValidacionError(
                 f"El envio {envio_id} no tiene tramos: no hay nada que facturar"
             )
-        importe = sum((t.costo for t in tramos), CERO)
+        # Un detalle por tramo: es exactamente lo que compone el importe, y asi
+        # la factura explica sola de donde sale su total (D69).
         return self.emitir(
             TitularTipo.CLIENTE,
             cliente_id,
-            importe,
+            CERO,  # lo define la suma de los detalles
             f"Envio {envio_id} ({len(tramos)} tramos)",
             envio_id=envio_id,
             momento=momento,
+            detalles=[
+                (f"Tramo {t.orden} ({t.medio_transporte.value})", t.costo)
+                for t in sorted(tramos, key=lambda x: x.orden)
+            ],
         )
 
     def anular(self, factura_id: UUID, motivo: str) -> Factura:
@@ -495,6 +527,13 @@ class FacturacionService:
     ) -> list[Factura]:
         with self._uow as uow:
             return uow.facturas.listar_por_titular(titular_tipo, titular_id)
+
+    def detalles_de(self, factura_id: UUID) -> list[DetalleFactura]:
+        """Las lineas que componen el total de una factura."""
+        with self._uow as uow:
+            if uow.facturas.obtener(factura_id) is None:
+                raise NoEncontrado(f"No existe la factura {factura_id}")
+            return uow.facturas.listar_detalles(factura_id)
 
     def resumen_de_facturas(
         self, titular_tipo: TitularTipo, titular_id: UUID

@@ -81,6 +81,35 @@ class TipoMovimiento(Enum):
 
 
 @dataclass
+class DetalleFactura:
+    """Una linea de la factura. La factura es la suma de sus lineas.
+
+    Es como funciona cualquier factura: el total no se escribe a mano, sale de
+    lo que se esta cobrando. Por eso `Factura.importe_total` deja de ser un dato
+    que alguien tipea y pasa a ser el resultado de estos detalles (D69).
+    """
+
+    id: UUID
+    factura_id: UUID
+    orden: int
+    descripcion: str
+    importe: Decimal
+
+    def __post_init__(self) -> None:
+        self.validar()
+
+    def validar(self) -> None:
+        if not self.descripcion.strip():
+            raise ValidacionError("El detalle de la factura necesita una descripcion")
+        if self.importe <= CERO:
+            raise ValidacionError(
+                f"El importe de un detalle debe ser positivo (recibido: {self.importe})"
+            )
+        if self.orden < 1:
+            raise ValidacionError(f"El orden de un detalle arranca en 1: {self.orden}")
+
+
+@dataclass
 class Factura:
     id: UUID
     titular_tipo: TitularTipo

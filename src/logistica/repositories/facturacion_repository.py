@@ -9,6 +9,7 @@ from uuid import UUID
 
 from logistica.domain.facturacion import (
     CuentaCorriente,
+    DetalleFactura,
     EstadoFactura,
     Factura,
     MovimientoCuenta,
@@ -39,6 +40,20 @@ class FacturaRepository(ABC):
 
     @abstractmethod
     def listar_por_estado(self, estado: EstadoFactura) -> list[Factura]: ...
+
+    @abstractmethod
+    def guardar_detalles(self, detalles: list[DetalleFactura]) -> None:
+        """Las lineas de una factura, en la misma transaccion que la factura.
+
+        Van en este repositorio y no en uno aparte porque el detalle no existe
+        sin su factura: se guardan juntos o no se guarda ninguno (D69).
+        """
+        ...
+
+    @abstractmethod
+    def listar_detalles(self, factura_id: UUID) -> list[DetalleFactura]:
+        """Las lineas de una factura, en su orden."""
+        ...
 
     @abstractmethod
     def obtener_por_envio(self, envio_id: UUID) -> Factura | None:

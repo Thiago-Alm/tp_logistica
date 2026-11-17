@@ -198,6 +198,27 @@ INSERT INTO factura (id, titular_tipo, titular_id, envio_id, numero_factura, fec
     ('c0000000-0000-0000-0000-000000000004', 'OPERADOR', '30000000-0000-0000-0000-000000000001', NULL, 'FC-B-0002-00000045', CURRENT_TIMESTAMP - INTERVAL '3 days 3 hours', CURRENT_TIMESTAMP + INTERVAL '18 days 11 hours 59 minutes', 12400.00, 'EMITIDA');
 
 -- ----------------------------------------------------------------------------
+-- 14.1 DETALLE DE LAS FACTURAS (1 factura --- N detalles, D69)
+-- El importe_total de cada factura de arriba es exactamente la suma de estas
+-- lineas. Si alguna no cuadrara, el control de integridad lo marcaria.
+-- ----------------------------------------------------------------------------
+INSERT INTO detalle_factura (factura_id, orden, descripcion, importe) VALUES
+    -- FC-A-0001-00001001: 3200 + 1900 + 750 = 5850.00
+    ('c0000000-0000-0000-0000-000000000001', 1, 'Flete maritimo Buenos Aires - Santos', 3200.00),
+    ('c0000000-0000-0000-0000-000000000001', 2, 'Flete maritimo Santos - Rotterdam', 1900.00),
+    ('c0000000-0000-0000-0000-000000000001', 3, 'Gastos de terminal', 750.00),
+    -- FC-A-0001-00001002: 1500 + 530 = 2030.00
+    ('c0000000-0000-0000-0000-000000000002', 1, 'Transporte terrestre', 1500.00),
+    ('c0000000-0000-0000-0000-000000000002', 2, 'Seguro de carga', 530.00),
+    -- FC-A-0001-00001003: 4100 + 1200 + 500 = 5800.00
+    ('c0000000-0000-0000-0000-000000000003', 1, 'Flete refrigerado', 4100.00),
+    ('c0000000-0000-0000-0000-000000000003', 2, 'Servicio de frio en puerto', 1200.00),
+    ('c0000000-0000-0000-0000-000000000003', 3, 'Documentacion de exportacion', 500.00),
+    -- FC-B-0002-00000045: 9000 + 3400 = 12400.00
+    ('c0000000-0000-0000-0000-000000000004', 1, 'Servicios de estiba', 9000.00),
+    ('c0000000-0000-0000-0000-000000000004', 2, 'Amarre y desamarre', 3400.00);
+
+-- ----------------------------------------------------------------------------
 -- 15. PAGOS (prefijo d - D15). El titular se deriva de la factura.
 -- ----------------------------------------------------------------------------
 INSERT INTO pago (id, factura_id, monto, medio_pago, fecha_pago, referencia_transaccion) VALUES

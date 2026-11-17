@@ -2822,3 +2822,59 @@ propia linea de total para que el numero no desaparezca sin explicacion.
 
 `resumen_de_facturas()` lee las facturas y los pagos de cada una **en la misma
 transaccion**, para que el total no quede calculado sobre una foto a medias.
+
+---
+
+## D69 — La factura se compone de detalles: el total es su suma
+
+Una factura tenia un `importe_total` suelto, tipeado por quien la emitia. En la
+vida real una factura es una lista de conceptos, y el total es lo que da la
+suma. Faltaba justamente eso: **de que esta hecho ese numero**.
+
+Se agrego `detalle_factura`, en relacion 1 factura --- N detalles:
+
+```sql
+CREATE TABLE detalle_factura (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    factura_id UUID NOT NULL,
+    orden INTEGER NOT NULL,
+    descripcion VARCHAR(200) NOT NULL,
+    importe NUMERIC(12,2) NOT NULL,
+    CONSTRAINT fk_detalle_factura FOREIGN KEY (factura_id)
+        REFERENCES factura(id) ON DELETE CASCADE,
+    CONSTRAINT uq_detalle_factura_orden UNIQUE (factura_id, orden),
+    CONSTRAINT chk_detalle_importe_positivo CHECK (importe > 0),
+    CONSTRAINT chk_detalle_descripcion CHECK (length(trim(descripcion)) > 0)
+);
+```
+
+Las decisiones que trae:
+
+**`ON DELETE CASCADE`, y es la unica vez que lo usamos para borrar de verdad.**
+Un detalle no existe sin su factura: no es una entidad con vida propia, es parte
+de ella. Contra esto, `factura` referencia a `envio` con `SET NULL` y `pago`
+referencia a `factura` con `RESTRICT`, porque un pago si tiene vida propia.
+
+**`importe_total` se sigue guardando**, aunque se derive de los detalles. Es la
+misma denormalizacion deliberada que el saldo de la cuenta corriente (D41):
+listar facturas no deberia obligar a sumar los detalles de cada una. El precio
+es que tienen que moverse juntos, y por eso se escriben en la misma transaccion.
+
+**Ninguna factura existe sin detalle.** `emitir()` acepta las lineas, y cuando
+no se le pasan arma una sola con el importe y el concepto recibidos. Asi la
+regla "el total es la suma de las lineas" vale siempre, incluso para quien llama
+con la forma vieja: la firma quedo compatible y ningun llamador existente se
+rompio.
+
+**`facturar_envio` emite un detalle por tramo.** Antes sumaba los costos y
+escribia el total con una descripcion generica; ahora cada tramo es una linea.
+Es el mismo numero, explicado.
+
+En la aplicacion, *Emitir factura* pide los conceptos de a uno, muestra el
+subtotal despues de cada uno y pide confirmacion antes de emitir. *Listar
+facturas* sigue mostrando totales -que es lo que se quiere ver de un listado- y
+*Ver el detalle de una factura* muestra las lineas, con la suma al pie y un
+error si no coincidiera con el total guardado.
+
+Los datos semilla traen los detalles de las cuatro facturas, que suman
+exactamente su `importe_total`.

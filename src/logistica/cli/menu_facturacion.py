@@ -223,20 +223,105 @@ def construir(
             f"Disponible: {cuenta.credito_disponible():.2f}"
         )
 
+    def _pedir_detalles() -> list[tuple[str, Decimal]] | None:
+        """Las lineas de la factura, una por una, hasta que no quiera mas.
+
+        Como cualquier factura: el total no se tipea, sale de lo que se cobra
+        (D69). Por eso se pide al menos una linea.
+        """
+        detalles: list[tuple[str, Decimal]] = []
+        while True:
+            numero = len(detalles) + 1
+            consola.aviso(f"Detalle {numero}:")
+            descripcion = consola.pedir("  Concepto").strip()
+            if not descripcion:
+                consola.error("El concepto no puede estar vacio.")
+                continue
+            importe = _pedir_decimal("  Importe")
+            if importe is None:
+                return None
+            if importe <= Decimal("0"):
+                consola.error("El importe de un detalle tiene que ser positivo.")
+                continue
+            detalles.append((descripcion, importe))
+            parcial = sum(m for _, m in detalles)
+            consola.aviso(f"  Subtotal: {parcial:.2f}")
+            if not consola.confirmar("Agregar otro detalle?"):
+                return detalles
+
     def emitir() -> None:
         consola.titulo("Emitir factura")
         titular = _elegir_titular(con_cuenta=True)
         if titular is None:
             return
-        importe = _pedir_decimal("Importe")
-        if importe is None:
+        consola.aviso("La factura se arma por detalles. El total es su suma.")
+        detalles = _pedir_detalles()
+        if not detalles:
+            return
+        consola.tabla(
+            ["#", "CONCEPTO", "IMPORTE"],
+            [[str(i), d, f"{m:.2f}"] for i, (d, m) in enumerate(detalles, 1)],
+        )
+        total = sum(m for _, m in detalles)
+        consola.aviso(f"Total a facturar: {total:.2f}")
+        if not consola.confirmar("Emitir la factura?"):
+            consola.aviso("Cancelado. No se emitio nada.")
             return
         try:
-            factura = servicio.emitir(*titular, importe, consola.pedir("Concepto"))
+            factura = servicio.emitir(
+                *titular,
+                total,
+                f"{len(detalles)} detalle(s)",
+                detalles=detalles,
+            )
         except LogisticaError as e:
             consola.error(str(e))
             return
-        consola.exito(f"Factura {factura.numero_factura} por {factura.importe_total:.2f}")
+        consola.exito(
+            f"Factura {factura.numero_factura} por {factura.importe_total:.2f} "
+            f"({len(detalles)} detalle(s))"
+        )
+
+    def ver_detalle_factura() -> None:
+        consola.titulo("Detalle de una factura")
+        titular = _elegir_titular(con_cuenta=True)
+        if titular is None:
+            return
+        try:
+            facturas = servicio.listar_facturas(*titular)
+        except LogisticaError as e:
+            consola.error(str(e))
+            return
+        if not facturas:
+            consola.aviso("Ese titular no tiene facturas.")
+            return
+        factura = consola.elegir_de_tabla(
+            facturas,
+            ["NUMERO", "EMISION", "IMPORTE", "ESTADO"],
+            lambda f: [
+                f.numero_factura,
+                f.fecha_emision.strftime("%Y-%m-%d"),
+                f"{f.importe_total:.2f}",
+                f.estado.value,
+            ],
+            "Numero de factura",
+        )
+        if factura is None:
+            return
+        try:
+            detalles = servicio.detalles_de(factura.id)
+        except LogisticaError as e:
+            consola.error(str(e))
+            return
+        consola.tabla(
+            ["#", "CONCEPTO", "IMPORTE"],
+            [[str(d.orden), d.descripcion, f"{d.importe:.2f}"] for d in detalles],
+        )
+        suma = sum((d.importe for d in detalles), Decimal("0"))
+        consola.aviso(f"Suma de los detalles: {suma:.2f}")
+        consola.aviso(f"Total de la factura:  {factura.importe_total:.2f}")
+        if suma != factura.importe_total:
+            consola.error("El total no coincide con la suma de los detalles.")
 
     def listar_facturas() -> None:
         consola.titulo("Facturas de un titular")
@@ -366,9 +451,10 @@ def construir(
             "4": ("Cambiar el limite de credito", seguro(cambiar_limite)),
             "5": ("Emitir factura", seguro(emitir)),
             "6": ("Listar facturas de un titular", seguro(listar_facturas)),
-            "7": ("Registrar pago", seguro(registrar_pago)),
-            "8": ("Facturacion automatica de entregados", seguro(facturar_entregados)),
-            "9": ("Cierre mensual", seguro(cerrar_mes)),
-            "10": ("Verificar saldos (integridad)", seguro(verificar)),
+            "7": ("Ver el detalle de una factura", seguro(ver_detalle_factura)),
+            "8": ("Registrar pago", seguro(registrar_pago)),
+            "9": ("Facturacion automatica de entregados", seguro(facturar_entregados)),
+            "10": ("Cierre mensual", seguro(cerrar_mes)),
+            "11": ("Verificar saldos (integridad)", seguro(verificar)),
         },
     )

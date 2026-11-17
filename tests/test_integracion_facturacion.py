@@ -398,3 +398,84 @@ def test_una_factura_anulada_no_suma_pero_se_sigue_listando(
         assert resumen.total_anulado == Decimal("700")
     finally:
         _limpiar(contenedor, facturas=[factura.id])
+
+
+# --- Detalle de factura (1 --- N) -------------------------------------------
+
+
+def test_el_total_de_la_factura_es_la_suma_de_sus_detalles(
+    contenedor, cuenta_con_limite
+):
+    servicio = contenedor.facturacion
+    factura = servicio.emitir(
+        TitularTipo.OPERADOR,
+        OPERADOR,
+        CERO,  # lo define la suma
+        "Servicios varios",
+        detalles=[
+            ("Flete maritimo", Decimal("1000")),
+            ("Seguro de carga", Decimal("250")),
+            ("Gastos de aduana", Decimal("130.50")),
+        ],
+    )
+    try:
+        assert factura.importe_total == Decimal("1380.50")
+
+        detalles = servicio.detalles_de(factura.id)
+        assert [d.orden for d in detalles] == [1, 2, 3]
+        assert [d.descripcion for d in detalles] == [
+            "Flete maritimo", "Seguro de carga", "Gastos de aduana",
+        ]
+        assert sum(d.importe for d in detalles) == factura.importe_total
+
+        # El saldo se movio por el total, no por una linea suelta.
+        estado = servicio.estado_de_cuenta(TitularTipo.OPERADOR, OPERADOR)
+        assert estado.cuenta.saldo == Decimal("-1380.50")
+        assert estado.saldo_coincide
+    finally:
+        _limpiar(contenedor, facturas=[factura.id])
+
+
+def test_una_factura_sin_detalles_igual_tiene_uno(contenedor, cuenta_con_limite):
+    """Ninguna factura existe sin detalle: si no se pasan, se arma uno con el
+    importe y el concepto. Asi el total siempre sale de las lineas."""
+    servicio = contenedor.facturacion
+    factura = servicio.emitir(
+        TitularTipo.OPERADOR, OPERADOR, Decimal("900"), "Servicio unico"
+    )
+    try:
+        detalles = servicio.detalles_de(factura.id)
+        assert len(detalles) == 1
+        assert detalles[0].descripcion == "Servicio unico"
+        assert detalles[0].importe == Decimal("900")
+    finally:
+        _limpiar(contenedor, facturas=[factura.id])
+
+
+def test_un_detalle_con_importe_no_positivo_no_emite_nada(
+    contenedor, cuenta_con_limite
+):
+    servicio = contenedor.facturacion
+    antes = len(servicio.listar_facturas(TitularTipo.OPERADOR, OPERADOR))
+    with pytest.raises(ValidacionError):
+        servicio.emitir(
+            TitularTipo.OPERADOR, OPERADOR, CERO, "Mixta",
+            detalles=[("Valida", Decimal("100")), ("Invalida", Decimal("0"))],
+        )
+    assert len(servicio.listar_facturas(TitularTipo.OPERADOR, OPERADOR)) == antes
+
+
+def test_borrar_la_factura_se_lleva_sus_detalles(contenedor, cuenta_con_limite):
+    """ON DELETE CASCADE: el detalle no existe sin su factura."""
+    servicio = contenedor.facturacion
+    factura = servicio.emitir(
+        TitularTipo.OPERADOR, OPERADOR, CERO, "Dos lineas",
+        detalles=[("Uno", Decimal("10")), ("Dos", Decimal("20"))],
+    )
+    assert len(servicio.detalles_de(factura.id)) == 2
+    _limpiar(contenedor, facturas=[factura.id])
+    with psycopg.connect(armar_dsn(contenedor.settings), autocommit=True) as cx:
+        quedan = cx.execute(
+            "select count(*) from detalle_factura where factura_id = %s", (factura.id,)
+        ).fetchone()[0]
+    assert quedan == 0
