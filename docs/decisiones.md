@@ -2633,3 +2633,51 @@ La regla que queda:
 Los dos primeros describen la operacion que el usuario esta por hacer. El
 tercero describe una operacion distinta, que quiza ni sea la suya. Mostrarlo
 igual no previene nada y le resta credibilidad a los mensajes que si importan.
+
+---
+
+## D64 — "Sin leer" cuenta lo recibido, y la columna tiene que decirlo
+
+Al abrir una conversacion y escribir el primer mensaje, la columna SIN LEER
+mostraba `-`, y se leia como si alguien ya la hubiera marcado como leida.
+
+El contador estaba bien. `Conversacion.registrar_actividad()` solo lo sube
+cuando el mensaje es de la parte:
+
+```python
+if de_la_parte:
+    self.sin_leer += 1
+```
+
+y `iniciar()` escribe el primer mensaje como `AutorMensaje.INTERNO`, porque lo
+escribe un usuario nuestro. **Un mensaje propio no puede estar sin leer**, igual
+que en cualquier correo: lo que uno manda no aparece como no leido en su propia
+bandeja.
+
+Lo que estaba mal era como se mostraba:
+
+```python
+str(c.sin_leer) if c.sin_leer else "-"
+```
+
+Un guion se lee como "no hay dato" o "no aplica". **Cero es un dato**, y es
+justamente el que habia que comunicar. Ahora se imprime el numero siempre, la
+columna se llama RECIBIDOS SIN LEER —que dice la direccion— y arriba de la
+tabla se aclara que los mensajes propios no entran en la cuenta.
+
+No se toco el modelo. El recorrido completo se verifica asi:
+
+| Paso | `sin_leer` |
+| --- | --- |
+| Abro la conversacion y escribo yo | 0 |
+| Responde la parte | 1 |
+| La parte escribe otra vez | 2 |
+| Respondo yo | 2 — responder no es leer |
+| Marco como leida | 0 |
+
+Que responder no baje el contador tambien es deliberado: se puede contestar una
+cosa sin haber leido las otras.
+
+**Un numero que confunde no siempre esta mal calculado; a veces esta mal
+rotulado.** Antes de cambiar una cuenta hay que mirar si el problema es la
+cuenta o la etiqueta.

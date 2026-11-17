@@ -50,8 +50,14 @@ def construir(
             consola.aviso("No hay conversaciones para mostrar.")
             return
         nombres = _nombres()
+        consola.aviso(
+            "RECIBIDOS SIN LEER cuenta los mensajes que mando la parte y todavia "
+            "nadie leyo. Los que escribimos nosotros no entran."
+        )
         consola.tabla(
-            ["ID", "ASUNTO", "PARTE", "CON", "ESTADO", "SIN LEER", "ACTIVIDAD"],
+            # "0" y no "-": un guion se lee como "no hay dato" y hacia parecer
+            # que alguien la habia marcado como leida. Cero es un dato.
+            ["ID", "ASUNTO", "PARTE", "CON", "ESTADO", "RECIBIDOS SIN LEER", "ACTIVIDAD"],
             [
                 [
                     str(c.id),
@@ -59,7 +65,7 @@ def construir(
                     c.parte_tipo.value,
                     nombres.get(c.parte_id, str(c.parte_id)[-12:])[:22],
                     c.estado.value,
-                    str(c.sin_leer) if c.sin_leer else "-",
+                    str(c.sin_leer),
                     f"{c.actividad.astimezone():%d/%m %H:%M}" if c.actividad else "-",
                 ]
                 for c in conversaciones
