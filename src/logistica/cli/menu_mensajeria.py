@@ -26,9 +26,11 @@ def construir(
     clientes,
     proveedores,
     operadores,
-    usuarios,
+    usuario_actual,
     rol_nivel: int = NIVEL_OPERADOR,
 ) -> None:
+    """`usuario_actual` es el que inicio sesion: los mensajes se firman con el,
+    no con uno elegido de una lista (D65)."""
     partes_por_tipo = {
         TitularTipo.CLIENTE: clientes,
         TitularTipo.PROVEEDOR: proveedores,
@@ -88,16 +90,6 @@ def construir(
             consola.error("No se encontro esa conversacion.")
         return encontrada
 
-    def _elegir_usuario():
-        try:
-            lista = usuarios.listar(solo_activos=True)
-        except LogisticaError as error:
-            consola.error(str(error))
-            return None
-        if not lista:
-            consola.error("No hay usuarios activos.")
-            return None
-        return _elegir_de(lista, "Usuario que escribe", lambda u: u.nombre_completo)
 
     def iniciar() -> None:
         consola.titulo("Abrir una conversacion con una parte")
@@ -126,13 +118,11 @@ def construir(
             except ValueError:
                 consola.error("El ID del envio no es valido.")
                 return
-        usuario = _elegir_usuario()
-        if usuario is None:
-            return
+        consola.aviso(f"Firma: {usuario_actual.nombre_completo} (tu sesion).")
 
         try:
             conversacion = servicio.iniciar(
-                tipo, parte.id, asunto, cuerpo, usuario.id, envio_id
+                tipo, parte.id, asunto, cuerpo, usuario_actual.id, envio_id
             )
         except LogisticaError as error:
             consola.error(str(error))
@@ -174,10 +164,8 @@ def construir(
             if conversacion is None:
                 return
             cuerpo = consola.pedir("Respuesta")
-            usuario = _elegir_usuario()
-            if usuario is None:
-                return
-            servicio.responder(conversacion.id, cuerpo, usuario.id)
+            consola.aviso(f"Firma: {usuario_actual.nombre_completo} (tu sesion).")
+            servicio.responder(conversacion.id, cuerpo, usuario_actual.id)
         except LogisticaError as error:
             consola.error(str(error))
             return

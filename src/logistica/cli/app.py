@@ -104,12 +104,17 @@ def _autenticar(contenedor: Contenedor) -> tuple[Usuario, Rol, Sesion] | None:
     return usuario, rol, sesion
 
 
-def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
+def _secciones(contenedor: Contenedor, nivel: int, usuario: Usuario) -> list[Seccion]:
     """Cada seccion declara el nivel de permisos que exige.
 
     `nivel` se recibe para pasarlo a los submenus que filtran alguna de sus
     propias opciones (el de monitoreo esconde la configuracion de umbrales).
     Asi el criterio sigue siendo uno solo, el de `permisos.opciones_para`.
+
+    `usuario` es el que inicio sesion. Va a los menus que registran quien hizo
+    cada cosa (mensajeria, solicitudes), que antes lo preguntaban de una lista:
+    la aplicacion ya sabe quien sos, preguntarlo era dejar firmar en nombre de
+    otro (D65).
     """
     return [
         (
@@ -197,7 +202,7 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
                 contenedor.clientes,
                 contenedor.proveedores_service,
                 contenedor.operadores_service,
-                contenedor.usuarios,
+                usuario,
                 rol_nivel=nivel,
             ),
         ),
@@ -216,7 +221,7 @@ def _secciones(contenedor: Contenedor, nivel: int) -> list[Seccion]:
                 contenedor.clientes,
                 contenedor.proveedores_service,
                 contenedor.operadores_service,
-                contenedor.usuarios,
+                usuario,
                 rol_nivel=nivel,
             ),
         ),
@@ -259,9 +264,9 @@ def main() -> int:
         return 130
     if credenciales is None:
         return 1
-    _, rol, sesion = credenciales
+    usuario, rol, sesion = credenciales
 
-    secciones = _secciones(contenedor, rol.nivel_permisos)
+    secciones = _secciones(contenedor, rol.nivel_permisos, usuario)
     opciones = opciones_para(rol.nivel_permisos, secciones)
     if not opciones:
         consola.error(

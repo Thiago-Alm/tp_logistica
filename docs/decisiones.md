@@ -2681,3 +2681,49 @@ cosa sin haber leido las otras.
 **Un numero que confunde no siempre esta mal calculado; a veces esta mal
 rotulado.** Antes de cambiar una cuenta hay que mirar si el problema es la
 cuenta o la etiqueta.
+
+---
+
+## D65 — La accion la hace quien inicio sesion, no quien se elija de una lista
+
+Lo encontro un companero usando la aplicacion. *Responder a una parte* preguntaba:
+
+    Usuario que escribe: 1=Lucia Auditora, 2=Mariana Fernandez,
+                         3=Carlos Operaciones, 4=Admin Sistema
+
+Estando ya logueado. Lo mismo en *Abrir una conversacion* y en *Solicitar un
+reporte* ("Usuario que lo pide").
+
+Son dos problemas en uno:
+
+1. **Suplantacion.** Entrando como auditor se podia firmar un mensaje a nombre
+   del administrador. La autoria quedaba a eleccion de quien escribia.
+2. **Un registro que no significa nada.** Si el autor se elige de una lista, el
+   campo `usuario_id` del mensaje deja de ser evidencia de quien lo escribio.
+   Un historial que no se puede creer no sirve para auditar.
+
+El origen estaba en `app.py`: la aplicacion autenticaba y despues **descartaba**
+al usuario.
+
+```python
+_, rol, sesion = credenciales   # el usuario se tiraba
+```
+
+Se conservaba el rol, porque el menu lo necesita para recortarse (D42, D49),
+pero la identidad se perdia. Y lo que el sistema no sabe, se lo termina
+preguntando al usuario.
+
+Ahora `_secciones()` recibe el usuario y lo pasa a los dos menus que registran
+autoria. Las tres preguntas desaparecieron; en su lugar se muestra con que
+firma va la operacion:
+
+    Firma: Admin Sistema (tu sesion).
+
+La regla general: **lo que el sistema ya sabe no se pregunta**, y menos cuando
+la respuesta es la identidad de quien actua. Preguntarla no es dar flexibilidad,
+es delegar la autenticacion en el formulario.
+
+`tests/test_identidad_en_menus.py` lee el codigo de los menus y falla si vuelve
+a aparecer una etiqueta "Usuario que ...", y verifica que `app.py` conserve el
+usuario. Mira el fuente en vez de ejecutarlo, por el mismo motivo que
+`test_menus_opcionales`: lo que hay que impedir es que la pregunta vuelva.

@@ -64,9 +64,11 @@ def construir(
     clientes,
     proveedores,
     operadores,
-    usuarios,
+    usuario_actual,
     rol_nivel: int = NIVEL_ADMINISTRADOR,
 ) -> None:
+    """`usuario_actual` es el que inicio sesion: la solicitud queda a su nombre,
+    no al de uno elegido de una lista (D65)."""
     partes_por_tipo = {
         TitularTipo.CLIENTE: clientes,
         TitularTipo.PROVEEDOR: proveedores,
@@ -118,18 +120,10 @@ def construir(
         if parte is None:
             return
 
-        # Quien lo pide y a quien se le factura son distintos (D58).
-        try:
-            activos = usuarios.listar(solo_activos=True)
-        except LogisticaError as error:
-            consola.error(str(error))
-            return
-        if not activos:
-            consola.error("No hay usuarios activos.")
-            return
-        usuario = _elegir_de(activos, "Usuario que lo pide", lambda u: u.nombre_completo)
-        if usuario is None:
-            return
+        # Quien lo pide y a quien se le factura son distintos (D58): lo pide
+        # el usuario de la sesion, se le factura al titular elegido arriba.
+        usuario = usuario_actual
+        consola.aviso(f"La pide: {usuario.nombre_completo} (tu sesion).")
 
         parametros: dict = {}
         if especificacion.acepta_rango:
