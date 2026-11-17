@@ -44,16 +44,34 @@ def _elegir(opciones: list, etiqueta, titulo: str):
 
 
 def _buscar_envio(servicio: EnvioService, clientes: ClienteService) -> Envio | None:
-    texto = consola.pedir("ID del envio (o un fragmento)").lower()
-    todos = [e for c in clientes.listar() for e in servicio.listar_por_cliente(c.id)]
-    coincidencias = [e for e in todos if texto in str(e.id).lower()]
-    if not coincidencias:
-        consola.error("No se encontro ningun envio con ese id.")
+    """El envio se elige de una lista, no se escribe de memoria (D66).
+
+    Se recorre por estado y no por cliente: deja la tabla agrupada por estado,
+    que es como uno busca un envio ("el que esta en transito de Fulano"). La
+    lista sigue aceptando el UUID o un fragmento, por si se lo trae de otra
+    pantalla.
+    """
+    try:
+        nombres = {c.id: c.razon_social for c in clientes.listar()}
+        todos = [e for estado in EstadoEnvio for e in servicio.listar_por_estado(estado)]
+    except LogisticaError as error:
+        consola.error(str(error))
         return None
-    if len(coincidencias) > 1:
-        consola.error(f"Hay {len(coincidencias)} envios que coinciden. Se mas especifico.")
+    if not todos:
+        consola.aviso("No hay envios cargados.")
         return None
-    return coincidencias[0]
+    return consola.elegir_de_tabla(
+        todos,
+        ["ID", "CLIENTE", "ESTADO", "PRIORIDAD", "CREADO"],
+        lambda e: [
+            str(e.id)[-12:],
+            nombres.get(e.cliente_id, str(e.cliente_id)[-8:])[:24],
+            e.estado.value,
+            e.prioridad.value,
+            f"{e.fecha_creacion.astimezone():%d/%m/%Y}",
+        ],
+        "Numero de envio",
+    )
 
 
 def construir(

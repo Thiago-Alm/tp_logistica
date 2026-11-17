@@ -2780,6 +2780,16 @@ Con el segundo menu usando el mismo selector, dejo de tener sentido que viviera
 dentro de uno: `elegir_de_tabla` paso a `cli/consola.py`, junto a `tabla` y
 `menu`. Es una primitiva de consola, no logica de incidentes.
 
+### Envios y trayectos
+
+`_buscar_envio()` pedia "ID del envio (o un fragmento)" y despues filtraba: si
+el fragmento no coincidia con ninguno avisaba, y si coincidia con varios pedia
+ser mas especifico. Funcionaba, pero obligaba a conocer el id de antemano.
+
+Se reemplazo por el mismo selector. Al ser una sola funcion usada por **ocho**
+opciones del menu -trayecto, tramos, estados, contenedores, historial y
+eventos-, el arreglo las cubrio todas de una.
+
 ---
 
 ## D67 — El limite de credito se cambia desde la aplicacion, no desde la base
