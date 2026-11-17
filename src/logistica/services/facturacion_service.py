@@ -46,6 +46,64 @@ log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class LineaDeFactura:
+    """Una factura con lo que ya se cobro de ella."""
+
+    factura: Factura
+    pagado: Decimal
+
+    @property
+    def pendiente(self) -> Decimal:
+        """Lo que falta cobrar. Una factura anulada no deja nada pendiente:
+        dejo de existir como deuda, aunque la fila se conserve (D26)."""
+        if self.factura.estado is EstadoFactura.ANULADA:
+            return CERO
+        return self.factura.importe_total - self.pagado
+
+
+@dataclass(frozen=True)
+class ResumenDeFacturas:
+    """Las facturas de un titular, cada una con su detalle, mas los totales.
+
+    Los totales se calculan aca y no en el menu: sumar plata es una decision
+    (que entra y que no), no una tarea de presentacion. Las anuladas quedan
+    listadas -son parte del historial- pero no suman.
+    """
+
+    lineas: list[LineaDeFactura]
+
+    @property
+    def total_facturado(self) -> Decimal:
+        return sum(
+            (
+                x.factura.importe_total
+                for x in self.lineas
+                if x.factura.estado is not EstadoFactura.ANULADA
+            ),
+            CERO,
+        )
+
+    @property
+    def total_cobrado(self) -> Decimal:
+        return sum((x.pagado for x in self.lineas), CERO)
+
+    @property
+    def total_pendiente(self) -> Decimal:
+        return sum((x.pendiente for x in self.lineas), CERO)
+
+    @property
+    def total_anulado(self) -> Decimal:
+        return sum(
+            (
+                x.factura.importe_total
+                for x in self.lineas
+                if x.factura.estado is EstadoFactura.ANULADA
+            ),
+            CERO,
+        )
+
+
+@dataclass(frozen=True)
 class EstadoDeCuenta:
     """Resultado compuesto: la cuenta con sus movimientos y su deuda."""
 
@@ -103,6 +161,53 @@ class FacturacionService:
             uow.cuentas.guardar(cuenta)
             uow.commit()
         log.info("Cuenta abierta para %s %s", titular_tipo.value, titular_id)
+        return cuenta
+
+    def cambiar_limite(
+        self,
+        titular_tipo: TitularTipo,
+        titular_id: UUID,
+        nuevo_limite: Decimal,
+    ) -> CuentaCorriente:
+        """Cambia el tope de credito de una cuenta por cobrar.
+
+        No se puede bajar por debajo de lo que el titular ya debe: el limite
+        acota cuanto puede deber, y dejarlo con una deuda mayor que su tope
+        seria aceptar un estado que la emision nunca habria permitido. Para eso
+        esta el cobro, no el limite.
+
+        Una cuenta por pagar no lleva tope (D62), asi que cambiarselo no
+        significa nada y se rechaza en vez de guardar un numero que nadie mira.
+        """
+        if nuevo_limite < CERO:
+            raise ValidacionError(
+                f"El limite de credito no puede ser negativo: {nuevo_limite}"
+            )
+        with self._uow as uow:
+            cuenta = uow.cuentas.obtener_por_titular(titular_tipo, titular_id)
+            if cuenta is None:
+                raise NoEncontrado(
+                    f"El titular {titular_tipo.value} {titular_id} no tiene cuenta"
+                )
+            if not cuenta.tiene_limite():
+                raise ConflictoDeDatos(
+                    f"Una cuenta de {titular_tipo.value} es por pagar y no lleva "
+                    f"limite de credito (D62)"
+                )
+            if nuevo_limite < cuenta.deuda:
+                raise ConflictoDeDatos(
+                    f"El titular debe {cuenta.deuda}: el limite no puede quedar "
+                    f"por debajo. Registra el cobro primero"
+                )
+            anterior = cuenta.limite_credito
+            cuenta.limite_credito = nuevo_limite
+            cuenta.validar()
+            uow.cuentas.actualizar(cuenta)
+            uow.commit()
+        log.info(
+            "Limite de %s %s: %s -> %s",
+            titular_tipo.value, titular_id, anterior, nuevo_limite,
+        )
         return cuenta
 
     def estado_de_cuenta(
@@ -390,6 +495,25 @@ class FacturacionService:
     ) -> list[Factura]:
         with self._uow as uow:
             return uow.facturas.listar_por_titular(titular_tipo, titular_id)
+
+    def resumen_de_facturas(
+        self, titular_tipo: TitularTipo, titular_id: UUID
+    ) -> ResumenDeFacturas:
+        """Las facturas del titular, cada una con lo cobrado, y los totales.
+
+        Se resuelve en una sola transaccion: las facturas y los pagos de cada
+        una se leen juntos, para que el total no pueda quedar calculado sobre
+        una foto a medias.
+        """
+        with self._uow as uow:
+            facturas = uow.facturas.listar_por_titular(titular_tipo, titular_id)
+            lineas = [
+                LineaDeFactura(
+                    factura=f, pagado=Decimal(uow.pagos.total_pagado(f.id))
+                )
+                for f in facturas
+            ]
+        return ResumenDeFacturas(lineas)
 
     def listar_cuentas(self) -> list[CuentaCorriente]:
         with self._uow as uow:

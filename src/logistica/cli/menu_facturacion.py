@@ -190,6 +190,39 @@ def construir(
             return
         consola.exito(f"Cuenta abierta: {cuenta.id}")
 
+    def cambiar_limite() -> None:
+        consola.titulo("Cambiar el limite de credito")
+        titular = _elegir_titular(con_cuenta=True)
+        if titular is None:
+            return
+        try:
+            cuenta = servicio.estado_de_cuenta(*titular).cuenta
+        except LogisticaError as e:
+            consola.error(str(e))
+            return
+        if not cuenta.tiene_limite():
+            consola.error(
+                "Una cuenta de PROVEEDOR es por pagar y no lleva limite (D62)."
+            )
+            return
+        consola.aviso(
+            f"Limite actual {cuenta.limite_credito:.2f}  "
+            f"nos debe {cuenta.deuda:.2f}  "
+            f"disponible {cuenta.credito_disponible():.2f}"
+        )
+        nuevo = _pedir_decimal("Nuevo limite de credito")
+        if nuevo is None:
+            return
+        try:
+            cuenta = servicio.cambiar_limite(*titular, nuevo)
+        except LogisticaError as e:
+            consola.error(str(e))
+            return
+        consola.exito(
+            f"Limite actualizado a {cuenta.limite_credito:.2f}. "
+            f"Disponible: {cuenta.credito_disponible():.2f}"
+        )
+
     def emitir() -> None:
         consola.titulo("Emitir factura")
         titular = _elegir_titular(con_cuenta=True)
@@ -210,19 +243,39 @@ def construir(
         titular = _elegir_titular(con_cuenta=True)
         if titular is None:
             return
+        resumen = servicio.resumen_de_facturas(*titular)
+        if not resumen.lineas:
+            consola.aviso("Ese titular no tiene facturas.")
+            return
+        # Cada factura con su detalle: lo emitido, lo cobrado y lo que falta.
+        # El total de abajo es exactamente la suma de esta columna.
         consola.tabla(
-            ["NUMERO", "EMISION", "VENCIMIENTO", "IMPORTE", "ESTADO"],
+            ["NUMERO", "EMISION", "VENCIMIENTO", "IMPORTE", "COBRADO",
+             "PENDIENTE", "ESTADO"],
             [
                 [
-                    f.numero_factura,
-                    f.fecha_emision.strftime("%Y-%m-%d"),
-                    f.fecha_vencimiento.strftime("%Y-%m-%d"),
-                    f"{f.importe_total:.2f}",
-                    f.estado.value,
+                    x.factura.numero_factura,
+                    x.factura.fecha_emision.strftime("%Y-%m-%d"),
+                    x.factura.fecha_vencimiento.strftime("%Y-%m-%d"),
+                    f"{x.factura.importe_total:.2f}",
+                    f"{x.pagado:.2f}",
+                    f"{x.pendiente:.2f}",
+                    x.factura.estado.value,
                 ]
-                for f in servicio.listar_facturas(*titular)
+                for x in resumen.lineas
             ],
         )
+        consola.titulo("Totales")
+        filas = [
+            ["Facturado", f"{resumen.total_facturado:.2f}", "sin contar las anuladas"],
+            ["Cobrado", f"{resumen.total_cobrado:.2f}", "pagos registrados"],
+            ["Pendiente", f"{resumen.total_pendiente:.2f}", "lo que falta cobrar"],
+        ]
+        if resumen.total_anulado:
+            filas.append(
+                ["Anulado", f"{resumen.total_anulado:.2f}", "queda en el historial"]
+            )
+        consola.tabla(["CONCEPTO", "IMPORTE", "DETALLE"], filas)
 
     def registrar_pago() -> None:
         consola.titulo("Registrar pago")
@@ -310,11 +363,12 @@ def construir(
             "1": ("Listar cuentas corrientes", seguro(listar_cuentas)),
             "2": ("Estado de cuenta", seguro(estado_de_cuenta)),
             "3": ("Abrir cuenta corriente", seguro(abrir_cuenta)),
-            "4": ("Emitir factura", seguro(emitir)),
-            "5": ("Listar facturas de un titular", seguro(listar_facturas)),
-            "6": ("Registrar pago", seguro(registrar_pago)),
-            "7": ("Facturacion automatica de entregados", seguro(facturar_entregados)),
-            "8": ("Cierre mensual", seguro(cerrar_mes)),
-            "9": ("Verificar saldos (integridad)", seguro(verificar)),
+            "4": ("Cambiar el limite de credito", seguro(cambiar_limite)),
+            "5": ("Emitir factura", seguro(emitir)),
+            "6": ("Listar facturas de un titular", seguro(listar_facturas)),
+            "7": ("Registrar pago", seguro(registrar_pago)),
+            "8": ("Facturacion automatica de entregados", seguro(facturar_entregados)),
+            "9": ("Cierre mensual", seguro(cerrar_mes)),
+            "10": ("Verificar saldos (integridad)", seguro(verificar)),
         },
     )

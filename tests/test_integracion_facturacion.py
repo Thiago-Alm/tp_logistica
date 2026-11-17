@@ -13,7 +13,12 @@ import pytest
 
 from logistica.container import Contenedor
 from logistica.domain.envio import EstadoEnvio, PrioridadEnvio
-from logistica.domain.facturacion import EstadoFactura, MedioPago, TitularTipo
+from logistica.domain.facturacion import (
+    CERO,
+    EstadoFactura,
+    MedioPago,
+    TitularTipo,
+)
 from logistica.domain.tramo import MedioTransporte
 from logistica.exceptions import (
     ConflictoDeDatos,
@@ -300,3 +305,96 @@ def test_no_se_factura_a_un_titular_sin_cuenta(contenedor):
             Decimal("100"),
             "x",
         )
+
+
+# --- Limite de credito ------------------------------------------------------
+
+
+def test_cambiar_el_limite_de_credito(contenedor, cuenta_con_limite):
+    servicio = contenedor.facturacion
+    cuenta = servicio.cambiar_limite(TitularTipo.OPERADOR, OPERADOR, Decimal("35000"))
+    assert cuenta.limite_credito == Decimal("35000")
+    # Y quedo guardado, no solo en el objeto devuelto.
+    assert servicio.estado_de_cuenta(
+        TitularTipo.OPERADOR, OPERADOR
+    ).cuenta.limite_credito == Decimal("35000")
+
+
+def test_el_limite_no_puede_quedar_por_debajo_de_la_deuda(
+    contenedor, cuenta_con_limite
+):
+    """El limite acota cuanto puede deber: dejarlo debajo de la deuda seria
+    aceptar un estado que la emision nunca habria permitido."""
+    servicio = contenedor.facturacion
+    servicio.emitir(TitularTipo.OPERADOR, OPERADOR, Decimal("8000"), "Servicio")
+    try:
+        with pytest.raises(ConflictoDeDatos):
+            servicio.cambiar_limite(TitularTipo.OPERADOR, OPERADOR, Decimal("5000"))
+        # El limite no se movio.
+        assert servicio.estado_de_cuenta(
+            TitularTipo.OPERADOR, OPERADOR
+        ).cuenta.limite_credito == Decimal("20000")
+    finally:
+        _limpiar(
+            contenedor,
+            facturas=[f.id for f in servicio.listar_facturas(TitularTipo.OPERADOR, OPERADOR)],
+        )
+
+
+def test_una_cuenta_por_pagar_no_acepta_limite(contenedor, cuenta_temporal):
+    """El proveedor no lleva tope (D62): cambiarselo no significa nada."""
+    with pytest.raises(ConflictoDeDatos):
+        contenedor.facturacion.cambiar_limite(
+            TitularTipo.PROVEEDOR, PROVEEDOR, Decimal("50000")
+        )
+
+
+def test_el_limite_no_puede_ser_negativo_al_cambiarlo(contenedor, cuenta_con_limite):
+    with pytest.raises(ValidacionError):
+        contenedor.facturacion.cambiar_limite(
+            TitularTipo.OPERADOR, OPERADOR, Decimal("-1")
+        )
+
+
+# --- Resumen con totales ----------------------------------------------------
+
+
+def test_el_resumen_suma_lo_facturado_lo_cobrado_y_lo_pendiente(
+    contenedor, cuenta_con_limite
+):
+    servicio = contenedor.facturacion
+    a = servicio.emitir(TitularTipo.OPERADOR, OPERADOR, Decimal("1000"), "Uno")
+    b = servicio.emitir(TitularTipo.OPERADOR, OPERADOR, Decimal("500"), "Dos")
+    servicio.registrar_pago(a.id, Decimal("400"), MedioPago.TRANSFERENCIA)
+    try:
+        resumen = servicio.resumen_de_facturas(TitularTipo.OPERADOR, OPERADOR)
+
+        assert resumen.total_facturado == Decimal("1500")
+        assert resumen.total_cobrado == Decimal("400")
+        assert resumen.total_pendiente == Decimal("1100")
+        # El total es exactamente la suma de las lineas que se muestran.
+        assert resumen.total_facturado == sum(
+            x.factura.importe_total for x in resumen.lineas
+        )
+        por_numero = {x.factura.id: x for x in resumen.lineas}
+        assert por_numero[a.id].pagado == Decimal("400")
+        assert por_numero[a.id].pendiente == Decimal("600")
+        assert por_numero[b.id].pendiente == Decimal("500")
+    finally:
+        _limpiar(contenedor, facturas=[a.id, b.id])
+
+
+def test_una_factura_anulada_no_suma_pero_se_sigue_listando(
+    contenedor, cuenta_con_limite
+):
+    servicio = contenedor.facturacion
+    factura = servicio.emitir(TitularTipo.OPERADOR, OPERADOR, Decimal("700"), "Error")
+    servicio.anular(factura.id, "Cargada por error")
+    try:
+        resumen = servicio.resumen_de_facturas(TitularTipo.OPERADOR, OPERADOR)
+        assert len(resumen.lineas) == 1          # sigue en el historial
+        assert resumen.total_facturado == CERO   # pero no suma
+        assert resumen.total_pendiente == CERO
+        assert resumen.total_anulado == Decimal("700")
+    finally:
+        _limpiar(contenedor, facturas=[factura.id])

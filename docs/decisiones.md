@@ -2779,3 +2779,46 @@ Neo4j entera.
 Con el segundo menu usando el mismo selector, dejo de tener sentido que viviera
 dentro de uno: `elegir_de_tabla` paso a `cli/consola.py`, junto a `tabla` y
 `menu`. Es una primitiva de consola, no logica de incidentes.
+
+---
+
+## D67 — El limite de credito se cambia desde la aplicacion, no desde la base
+
+No habia forma de modificar el tope de una cuenta: se abria con un valor y
+quedaba asi para siempre. Durante la defensa hubo que editarlo con un UPDATE
+directo en PostgreSQL, que es exactamente lo que una aplicacion existe para
+evitar: **un dato que solo se puede cambiar por fuera no esta administrado.**
+
+`FacturacionService.cambiar_limite()` lo hace, con tres reglas:
+
+| Caso | Que pasa |
+| --- | --- |
+| Limite negativo | `ValidacionError` — lo mismo que exige `CuentaCorriente.validar()` |
+| Cuenta por pagar (proveedor) | `ConflictoDeDatos` — no lleva tope (D62) |
+| Limite por debajo de la deuda actual | `ConflictoDeDatos` |
+
+La tercera es la que importa y no es obvia. El limite acota **cuanto puede
+deber** el titular; dejarlo por debajo de lo que ya debe seria aceptar un estado
+que la emision nunca habria permitido. Para bajar la exposicion esta el cobro,
+no el limite. El menu muestra el limite actual, la deuda y el disponible antes
+de pedir el valor nuevo, para que la decision se tome con los tres numeros a la
+vista.
+
+## D68 — Los totales de facturacion se calculan en el servicio
+
+*Listar facturas de un titular* mostraba las facturas sueltas, sin sumarlas. Con
+tres facturas en pantalla, la pregunta "cuanto es todo junto" quedaba para el
+que miraba.
+
+Ahora cada factura muestra **lo emitido, lo cobrado y lo pendiente**, y abajo
+van los totales. El detalle de arriba es la composicion del total de abajo: se
+ve de donde sale cada peso.
+
+Los totales los calcula `ResumenDeFacturas` en el servicio, no el menu, porque
+**sumar plata es una decision, no una tarea de presentacion**: hay que resolver
+que entra y que no. Una factura ANULADA se sigue listando -es parte del
+historial (D26)- pero no suma en lo facturado ni deja nada pendiente, y tiene su
+propia linea de total para que el numero no desaparezca sin explicacion.
+
+`resumen_de_facturas()` lee las facturas y los pagos de cada una **en la misma
+transaccion**, para que el total no quede calculado sobre una foto a medias.
