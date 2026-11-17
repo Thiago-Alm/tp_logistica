@@ -1,8 +1,7 @@
 """Menu de consultas de la red logistica en Neo4j."""
 
-from uuid import UUID
-
 from logistica.cli import consola
+from logistica.domain.envio import EstadoEnvio
 from logistica.exceptions import LogisticaError
 from logistica.services.consulta_grafo_service import ConsultaGrafoService
 
@@ -11,20 +10,71 @@ def _texto(valor) -> str:
     return "-" if valor is None else str(valor)
 
 
-def _pedir_id(etiqueta: str) -> UUID | None:
-    try:
-        return UUID(consola.pedir(etiqueta).strip())
-    except ValueError:
-        consola.error("ID invalido. Usa un UUID.")
-        return None
+def construir(servicio: ConsultaGrafoService, envios, clientes, contenedores) -> None:
+    """Las tres consultas pedian un UUID a mano. Ahora se elige de una lista
+    (D66); los servicios de PostgreSQL estan solo para armarla, porque Neo4j
+    guarda los ids pero no es la fuente de verdad de esos datos."""
 
+    def _elegir_envio():
+        try:
+            nombres = {c.id: c.razon_social for c in clientes.listar()}
+            todos = [e for estado in EstadoEnvio for e in envios.listar_por_estado(estado)]
+        except LogisticaError as error:
+            consola.error(str(error))
+            return None
+        if not todos:
+            consola.aviso("No hay envios cargados.")
+            return None
+        return consola.elegir_de_tabla(
+            todos,
+            ["ID", "CLIENTE", "ESTADO", "PRIORIDAD", "CREADO"],
+            lambda e: [
+                str(e.id)[-12:],
+                nombres.get(e.cliente_id, str(e.cliente_id)[-8:])[:24],
+                e.estado.value,
+                e.prioridad.value,
+                f"{e.fecha_creacion.astimezone():%d/%m/%Y}",
+            ],
+            "Numero de envio",
+        )
 
-def construir(servicio: ConsultaGrafoService) -> None:
+    def _elegir_cliente():
+        try:
+            lista = clientes.listar()
+        except LogisticaError as error:
+            consola.error(str(error))
+            return None
+        if not lista:
+            consola.aviso("No hay clientes cargados.")
+            return None
+        return consola.elegir_de_tabla(
+            lista,
+            ["CUIT", "RAZON SOCIAL", "PAIS", "ESTADO"],
+            lambda c: [c.cuit, c.razon_social[:30], c.pais, c.estado.value],
+            "Numero de cliente",
+        )
+
+    def _elegir_contenedor():
+        try:
+            lista = contenedores.listar()
+        except LogisticaError as error:
+            consola.error(str(error))
+            return None
+        if not lista:
+            consola.aviso("No hay contenedores cargados.")
+            return None
+        return consola.elegir_de_tabla(
+            lista,
+            ["CODIGO ISO", "TIPO", "CAPACIDAD", "ESTADO"],
+            lambda c: [c.codigo_iso, c.tipo, f"{c.capacidad:.1f}", c.estado.value],
+            "Numero de contenedor",
+        )
     def ruta_de_envio() -> None:
         consola.titulo("Ruta completa de un envio")
-        envio_id = _pedir_id("ID del envio")
-        if envio_id is None:
+        envio = _elegir_envio()
+        if envio is None:
             return
+        envio_id = envio.id
         try:
             tramos = servicio.ruta_de_envio(envio_id)
         except LogisticaError as error:
@@ -49,9 +99,10 @@ def construir(servicio: ConsultaGrafoService) -> None:
 
     def red_de_cliente() -> None:
         consola.titulo("Envios y operadores de un cliente")
-        cliente_id = _pedir_id("ID del cliente")
-        if cliente_id is None:
+        cliente = _elegir_cliente()
+        if cliente is None:
             return
+        cliente_id = cliente.id
         try:
             relaciones = servicio.red_de_cliente(cliente_id)
         except LogisticaError as error:
@@ -70,9 +121,10 @@ def construir(servicio: ConsultaGrafoService) -> None:
 
     def movimientos_de_contenedor() -> None:
         consola.titulo("Tramos recorridos por un contenedor")
-        contenedor_id = _pedir_id("ID del contenedor")
-        if contenedor_id is None:
+        contenedor = _elegir_contenedor()
+        if contenedor is None:
             return
+        contenedor_id = contenedor.id
         try:
             movimientos = servicio.movimientos_de_contenedor(contenedor_id)
         except LogisticaError as error:

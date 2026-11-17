@@ -183,7 +183,12 @@ def _secciones(contenedor: Contenedor, nivel: int, usuario: Usuario) -> list[Sec
         (
             NIVEL_OPERADOR,
             "Consultas de la red logistica",
-            lambda: menu_grafo.construir(contenedor.consultas_red),
+            lambda: menu_grafo.construir(
+                contenedor.consultas_red,
+                contenedor.envios,
+                contenedor.clientes,
+                contenedor.contenedores_service,
+            ),
         ),
         (
             NIVEL_OPERADOR,

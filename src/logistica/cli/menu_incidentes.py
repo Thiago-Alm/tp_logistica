@@ -56,32 +56,6 @@ def _mostrar(incidentes: list[Incidente]) -> None:
 
 
 
-def _elegir_de_tabla(opciones: list, columnas: list[str], fila, etiqueta: str):
-    """Muestra las opciones numeradas y devuelve la elegida.
-
-    El menu pedia los UUID a mano. Nadie los sabe de memoria, y copiarlos de
-    otra pantalla es trabajo que la aplicacion puede ahorrar: si el sistema
-    puede listar lo que hay, que lo liste (D66).
-    """
-    if not opciones:
-        return None
-    consola.tabla(["#", *columnas], [[str(i), *fila(o)] for i, o in enumerate(opciones, 1)])
-    texto = consola.pedir(etiqueta).strip()
-    if texto.isdigit() and 1 <= int(texto) <= len(opciones):
-        return opciones[int(texto) - 1]
-    # Tambien se acepta el UUID o un fragmento, por si se lo trae de otra
-    # pantalla o de una consulta a la base.
-    if texto:
-        encontrada = next(
-            (o for o in opciones if texto.lower() in str(getattr(o, "id", "")).lower()),
-            None,
-        )
-        if encontrada is not None:
-            return encontrada
-    consola.error("Opcion invalida.")
-    return None
-
-
 def construir(
     servicio: IncidenteService,
     envios,
@@ -106,7 +80,7 @@ def construir(
         if not todos:
             consola.aviso("No hay envios cargados.")
             return None
-        return _elegir_de_tabla(
+        return consola.elegir_de_tabla(
             todos,
             ["ID", "CLIENTE", "ESTADO", "PRIORIDAD", "CREADO"],
             lambda e: [
@@ -144,7 +118,7 @@ def construir(
         if not del_envio:
             consola.aviso("El envio no tiene contenedores asignados.")
         elif consola.confirmar("Afecta a un contenedor en particular?"):
-            elegido = _elegir_de_tabla(
+            elegido = consola.elegir_de_tabla(
                 del_envio,
                 ["CODIGO ISO", "TIPO", "ESTADO"],
                 lambda c: [c.codigo_iso, c.tipo, c.estado.value],
@@ -178,7 +152,7 @@ def construir(
         if not abiertos:
             consola.aviso("No hay incidentes abiertos para cambiar de estado.")
             return
-        elegido = _elegir_de_tabla(
+        elegido = consola.elegir_de_tabla(
             abiertos,
             ["ID", "TIPO", "SEVERIDAD", "ESTADO", "DESCRIPCION"],
             lambda i: [

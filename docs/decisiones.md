@@ -2763,3 +2763,19 @@ consulta a la base no pierde el atajo.
 
 La regla: **lo que el sistema puede mostrar, no se pide de memoria.** Un campo
 vacio que espera un UUID no es una pregunta, es un examen.
+
+### Las consultas de la red logistica
+
+Las tres opciones del menu de Neo4j tenian el mismo problema, y se arreglaron
+igual: envio, cliente y contenedor se eligen de una tabla.
+
+Ese menu recibe ahora tres servicios de PostgreSQL que antes no necesitaba.
+Vale aclarar por que no es una mezcla indebida: **Neo4j guarda los ids pero no
+es la fuente de verdad de esos datos**. La razon social del cliente y el codigo
+ISO del contenedor viven en PostgreSQL (D41), asi que armar la lista para
+elegir es pedirselos a quien los tiene. La consulta en si la sigue resolviendo
+Neo4j entera.
+
+Con el segundo menu usando el mismo selector, dejo de tener sentido que viviera
+dentro de uno: `elegir_de_tabla` paso a `cli/consola.py`, junto a `tabla` y
+`menu`. Es una primitiva de consola, no logica de incidentes.

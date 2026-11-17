@@ -85,3 +85,30 @@ def menu(
             error("Opcion invalida.")
             continue
         opciones[eleccion][1]()
+
+
+def elegir_de_tabla(opciones: list, columnas: list[str], fila, etiqueta: str):
+    """Muestra las opciones numeradas y devuelve la elegida, o None.
+
+    Existe porque varios menus pedian un UUID sobre una linea vacia. Nadie los
+    sabe de memoria: habia que ir a otra pantalla, copiarlo y volver. Lo que el
+    sistema puede mostrar no se pide de memoria (D66).
+
+    Se acepta el numero de fila, el UUID completo o un fragmento: quien trae el
+    id de una consulta a la base no pierde el atajo.
+    """
+    if not opciones:
+        return None
+    tabla(["#", *columnas], [[str(i), *fila(o)] for i, o in enumerate(opciones, 1)])
+    texto = pedir(etiqueta).strip()
+    if texto.isdigit() and 1 <= int(texto) <= len(opciones):
+        return opciones[int(texto) - 1]
+    if texto:
+        encontrada = next(
+            (o for o in opciones if texto.lower() in str(getattr(o, "id", "")).lower()),
+            None,
+        )
+        if encontrada is not None:
+            return encontrada
+    error("Opcion invalida.")
+    return None
