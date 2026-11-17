@@ -15,8 +15,14 @@ from logistica.domain.solicitud_reporte import (
     SolicitudReporte,
     TipoReporte,
 )
-from logistica.exceptions import ConflictoDeDatos, NoEncontrado, ValidacionError
+from logistica.exceptions import (
+    ConflictoDeDatos,
+    ErrorDePersistencia,
+    NoEncontrado,
+    ValidacionError,
+)
 from logistica.services.solicitud_reporte_service import SolicitudReporteService
+from logistica.sync.saga import SagaFallida
 
 AHORA = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
 
@@ -336,3 +342,65 @@ def test_actualizar_una_solicitud_inexistente(repositorio_mongo):
     repositorio, _ = repositorio_mongo
     with pytest.raises(NoEncontrado):
         repositorio.actualizar(nueva_solicitud())
+
+
+# --- La saga: PostgreSQL + MongoDB sin transaccion comun (D70) ---------------
+
+
+def test_si_mongo_falla_la_factura_de_postgres_se_anula():
+    """El caso que la saga existe para resolver.
+
+    La factura se emite en PostgreSQL y la solicitud se marca en MongoDB. Si lo
+    segundo falla, lo primero no puede quedar: se compensa anulando.
+    """
+    solicitud = nueva_solicitud()
+    solicitud.marcar_generada(4, AHORA)
+    servicio, repositorio, _ = armar(solicitud)
+    factura = MagicMock(id=uuid4())
+    servicio._facturacion.emitir.return_value = factura
+    repositorio.actualizar.side_effect = ErrorDePersistencia("MongoDB no responde")
+
+    with pytest.raises(SagaFallida) as capturado:
+        servicio.facturar(solicitud.id)
+
+    error = capturado.value
+    assert error.paso == "marcar la solicitud como facturada"
+    assert error.quedo_consistente, "la factura tenia que quedar anulada"
+    servicio._facturacion.anular.assert_called_once()
+    assert servicio._facturacion.anular.call_args[0][0] == factura.id
+
+
+def test_si_tampoco_se_puede_anular_el_error_avisa_que_quedo_inconsistente():
+    """Si PostgreSQL se cayo entre la emision y la anulacion, la factura queda
+    viva y la solicitud sin marcar. El sistema no puede arreglarlo solo: lo que
+    si puede es decirlo."""
+    solicitud = nueva_solicitud()
+    solicitud.marcar_generada(4, AHORA)
+    servicio, repositorio, _ = armar(solicitud)
+    servicio._facturacion.emitir.return_value = MagicMock(id=uuid4())
+    repositorio.actualizar.side_effect = ErrorDePersistencia("MongoDB no responde")
+    servicio._facturacion.anular.side_effect = ErrorDePersistencia("PostgreSQL cayo")
+
+    with pytest.raises(SagaFallida) as capturado:
+        servicio.facturar(solicitud.id)
+
+    error = capturado.value
+    assert not error.quedo_consistente
+    assert "inconsistente" in str(error)
+    assert "emitir la factura" in error.sin_compensar[0]
+
+
+def test_si_falla_la_emision_no_hay_nada_que_deshacer():
+    solicitud = nueva_solicitud()
+    solicitud.marcar_generada(4, AHORA)
+    servicio, repositorio, _ = armar(solicitud)
+    servicio._facturacion.emitir.side_effect = ErrorDePersistencia("PostgreSQL cayo")
+
+    with pytest.raises(SagaFallida) as capturado:
+        servicio.facturar(solicitud.id)
+
+    assert capturado.value.paso == "emitir la factura"
+    assert capturado.value.quedo_consistente
+    servicio._facturacion.anular.assert_not_called()
+    repositorio.actualizar.assert_not_called()
+    assert solicitud.estado is EstadoSolicitud.GENERADA

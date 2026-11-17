@@ -30,6 +30,7 @@ from logistica.repositories.solicitud_reporte_repository import (
 )
 from logistica.repositories.unidad_de_trabajo import UnidadDeTrabajo
 from logistica.services.incidente_service import EjePromedio
+from logistica.sync import saga
 
 log = logging.getLogger(__name__)
 
@@ -194,10 +195,15 @@ class SolicitudReporteService:
         servicio solo agrega el cuarto paso: marcar la solicitud como facturada
         en MongoDB.
 
-        **Ese cuarto paso queda afuera de la transaccion**, porque MongoDB y
-        PostgreSQL no comparten una. Si fallara, quedaria una factura emitida y
-        una solicitud en GENERADA: por eso `listar_pendientes_de_facturar()`
-        existe y el menu la ofrece, para encontrar justo ese caso.
+        Los dos ultimos pasos tocan **motores distintos**, asi que no pueden ir
+        en una transaccion: PostgreSQL y MongoDB no comparten ninguna. Se
+        resuelve con una **saga** (D70): si marcar la solicitud en MongoDB
+        falla, la factura ya emitida en PostgreSQL se anula con un asiento
+        inverso, y el sistema vuelve a donde estaba.
+
+        La anulacion deja rastro a proposito. No es un `ROLLBACK` que borra:
+        la factura queda ANULADA y su reverso queda en el libro mayor, porque
+        corregir un error contable es otro asiento, no una edicion (D41).
         """
         solicitud = self._obtener(solicitud_id)
         if not solicitud.esta_pendiente_de_facturar():
@@ -206,14 +212,37 @@ class SolicitudReporteService:
                 "GENERADA"
             )
 
-        factura = self._facturacion.emitir(
-            solicitud.titular_tipo,
-            solicitud.titular_id,
-            solicitud.costo,
-            f"Reporte: {solicitud.especificacion.etiqueta}",
+        # La factura se guarda aparte porque el segundo paso la necesita y
+        # `hacer` no recibe argumentos: el paso 2 depende del resultado del 1.
+        emitida: list[Factura] = []
+
+        def emitir() -> Factura:
+            factura = self._facturacion.emitir(
+                solicitud.titular_tipo,
+                solicitud.titular_id,
+                solicitud.costo,
+                f"Reporte: {solicitud.especificacion.etiqueta}",
+            )
+            emitida.append(factura)
+            return factura
+
+        def anular(factura: Factura) -> None:
+            self._facturacion.anular(
+                factura.id, "No se pudo marcar la solicitud como facturada"
+            )
+
+        def marcar() -> None:
+            solicitud.marcar_facturada(emitida[0].id)
+            self._solicitudes.actualizar(solicitud)
+
+        resultados = saga.ejecutar(
+            [
+                saga.Paso("emitir la factura", "PostgreSQL", emitir, anular),
+                # Ultimo paso: si falla, no hay nada posterior que deshacer.
+                saga.Paso("marcar la solicitud como facturada", "MongoDB", marcar),
+            ]
         )
-        solicitud.marcar_facturada(factura.id)
-        self._solicitudes.actualizar(solicitud)
+        factura = resultados[0]
         log.info(
             "Reporte %s facturado: %s", solicitud.tipo.value, factura.numero_factura
         )

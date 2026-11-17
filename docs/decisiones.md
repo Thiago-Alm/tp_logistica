@@ -2878,3 +2878,79 @@ error si no coincidiera con el total guardado.
 
 Los datos semilla traen los detalles de las cuatro facturas, que suman
 exactamente su `importe_total`.
+
+---
+
+## D70 — Saga: atomicidad entre motores, que no es una transaccion
+
+Facturar un reporte escribe en **PostgreSQL** (la factura) y en **MongoDB** (la
+solicitud pasa a FACTURADA). Hasta aca el codigo lo admitia y no lo resolvia:
+si el segundo paso fallaba quedaba una factura emitida contra una solicitud sin
+marcar, y lo unico que ofreciamos era una consulta para encontrar el caso.
+
+Ahora se resuelve con una **saga** (`sync/saga.py`): los pasos corren en orden
+y, si uno falla, los anteriores se deshacen con una operacion **inversa**.
+
+```python
+saga.ejecutar([
+    saga.Paso("emitir la factura", "PostgreSQL", emitir, anular),
+    saga.Paso("marcar la solicitud como facturada", "MongoDB", marcar),
+])
+```
+
+### Por que esto no es una transaccion
+
+Conviene decirlo antes de que lo pregunten:
+
+| | Transaccion (un motor) | Saga (varios motores) |
+| --- | --- | --- |
+| Atomicidad | la garantiza el motor | la arma la aplicacion |
+| Estado intermedio | nadie lo ve | **se ve** mientras corre |
+| Deshacer | `ROLLBACK`, sin rastro | un acto inverso, **queda en el historial** |
+| Si falla deshacer | imposible | **posible**: hay que reportarlo |
+
+**La compensacion no borra.** La factura no desaparece: queda ANULADA, con su
+movimiento de reverso en la cuenta corriente. Es lo correcto contablemente
+—corregir un error es otro asiento, no una edicion (D41)— y es la diferencia
+practica con un `ROLLBACK`.
+
+### La fila que mas importa es la ultima
+
+Una compensacion tambien puede fallar: si PostgreSQL se cae entre la emision y
+la anulacion, la factura queda viva y la solicitud sin marcar. El sistema no
+puede arreglarlo solo. Lo que **si** puede es no mentir, y por eso
+`SagaFallida` lleva dos datos: que fallo y si se pudo volver atras.
+
+```
+La operacion fallo en 'marcar la solicitud como facturada': MongoDB no
+responde. Se deshizo todo lo anterior: no quedo nada a medias.
+```
+
+contra
+
+```
+... ADEMAS no se pudo deshacer: emitir la factura (PostgreSQL cayo).
+El sistema quedo inconsistente y hay que revisarlo a mano.
+```
+
+Tres detalles del motor de sagas, cada uno con su motivo:
+
+- **Se compensa en orden inverso**: el ultimo paso puede apoyarse en los
+  anteriores, asi que deshacer el primero antes que el segundo dejaria al
+  segundo colgado.
+- **El paso que falla no se compensa**: no llego a hacer nada.
+- **Una compensacion que falla no frena a las demas**: deshacer tres de cuatro
+  deja el sistema mas cerca de donde estaba que deshacer cero.
+
+### Donde NO se uso, y por que
+
+| Operacion | Motores | Por que no |
+| --- | --- | --- |
+| Outbox | PostgreSQL -> Neo4j, Cassandra | El evento ya es atomico con el dato; reintentar alcanza |
+| Lectura de sensor | Cassandra, MongoDB, Redis | Una lectura perdida es tolerable; idempotencia basta |
+| Login | PostgreSQL, Redis | PostgreSQL solo lee: no hay nada que deshacer |
+| Cache de reportes | PostgreSQL, Redis | El cache es un acelerador, no un dato |
+
+**Una saga cuesta**: hay que escribir y mantener la operacion inversa de cada
+paso. Se paga donde la inconsistencia duele —la plata— y no donde se arregla
+sola con un reintento.
