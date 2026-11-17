@@ -1,6 +1,5 @@
 """Menu de incidentes de envios y sus reportes (D12)."""
 
-from uuid import UUID
 
 from logistica.cli import consola
 from logistica.cli.permisos import (
@@ -9,6 +8,7 @@ from logistica.cli.permisos import (
     NIVEL_OPERADOR,
     opciones_para,
 )
+from logistica.domain.envio import EstadoEnvio
 from logistica.domain.incidente import (
     EstadoIncidente,
     Incidente,
@@ -55,17 +55,75 @@ def _mostrar(incidentes: list[Incidente]) -> None:
     )
 
 
+
+def _elegir_de_tabla(opciones: list, columnas: list[str], fila, etiqueta: str):
+    """Muestra las opciones numeradas y devuelve la elegida.
+
+    El menu pedia los UUID a mano. Nadie los sabe de memoria, y copiarlos de
+    otra pantalla es trabajo que la aplicacion puede ahorrar: si el sistema
+    puede listar lo que hay, que lo liste (D66).
+    """
+    if not opciones:
+        return None
+    consola.tabla(["#", *columnas], [[str(i), *fila(o)] for i, o in enumerate(opciones, 1)])
+    texto = consola.pedir(etiqueta).strip()
+    if texto.isdigit() and 1 <= int(texto) <= len(opciones):
+        return opciones[int(texto) - 1]
+    # Tambien se acepta el UUID o un fragmento, por si se lo trae de otra
+    # pantalla o de una consulta a la base.
+    if texto:
+        encontrada = next(
+            (o for o in opciones if texto.lower() in str(getattr(o, "id", "")).lower()),
+            None,
+        )
+        if encontrada is not None:
+            return encontrada
+    consola.error("Opcion invalida.")
+    return None
+
+
 def construir(
-    servicio: IncidenteService, rol_nivel: int = NIVEL_ADMINISTRADOR
+    servicio: IncidenteService,
+    envios,
+    clientes,
+    rol_nivel: int = NIVEL_ADMINISTRADOR,
 ) -> None:
+    """`envios` y `clientes` estan para poder elegir de una lista en vez de
+    tipear UUID (D66)."""
+
+    def _elegir_envio(etiqueta: str = "Numero de envio"):
+        """Todos los envios, con el dato suficiente para reconocerlos.
+
+        EnvioService no tiene un `listar()` suelto: se listan por estado, que
+        ademas deja la tabla agrupada por estado, que es como uno los busca.
+        """
+        try:
+            nombres = {c.id: c.razon_social for c in clientes.listar()}
+            todos = [e for estado in EstadoEnvio for e in envios.listar_por_estado(estado)]
+        except LogisticaError as error:
+            consola.error(str(error))
+            return None
+        if not todos:
+            consola.aviso("No hay envios cargados.")
+            return None
+        return _elegir_de_tabla(
+            todos,
+            ["ID", "CLIENTE", "ESTADO", "PRIORIDAD", "CREADO"],
+            lambda e: [
+                str(e.id)[-12:],
+                nombres.get(e.cliente_id, str(e.cliente_id)[-8:])[:24],
+                e.estado.value,
+                e.prioridad.value,
+                f"{e.fecha_creacion.astimezone():%d/%m/%Y}",
+            ],
+            etiqueta,
+        )
     def registrar() -> None:
         consola.titulo("Registrar un incidente")
-        texto = consola.pedir("ID del envio").strip()
-        try:
-            envio_id = UUID(texto)
-        except ValueError:
-            consola.error("El ID del envio no es valido.")
+        envio = _elegir_envio()
+        if envio is None:
             return
+        envio_id = envio.id
 
         tipo = _elegir("Tipo", TipoIncidente)
         if tipo is None:
@@ -75,16 +133,26 @@ def construir(
             return
         descripcion = consola.pedir("Descripcion")
 
-        texto_contenedor = consola.pedir(
-            "ID del contenedor", obligatorio=False
-        ).strip()
+        # Solo los contenedores de ESE envio: un incidente de otro contenedor
+        # no tendria sentido en este envio.
         contenedor_id = None
-        if texto_contenedor:
-            try:
-                contenedor_id = UUID(texto_contenedor)
-            except ValueError:
-                consola.error("El ID del contenedor no es valido.")
+        try:
+            del_envio = envios.listar_contenedores(envio_id)
+        except LogisticaError as error:
+            consola.error(str(error))
+            return
+        if not del_envio:
+            consola.aviso("El envio no tiene contenedores asignados.")
+        elif consola.confirmar("Afecta a un contenedor en particular?"):
+            elegido = _elegir_de_tabla(
+                del_envio,
+                ["CODIGO ISO", "TIPO", "ESTADO"],
+                lambda c: [c.codigo_iso, c.tipo, c.estado.value],
+                "Numero de contenedor",
+            )
+            if elegido is None:
                 return
+            contenedor_id = elegido.id
 
         try:
             incidente = servicio.registrar(
@@ -102,12 +170,29 @@ def construir(
 
     def cambiar_estado() -> None:
         consola.titulo("Cambiar el estado de un incidente")
-        texto = consola.pedir("ID del incidente").strip()
         try:
-            incidente_id = UUID(texto)
-        except ValueError:
-            consola.error("El ID del incidente no es valido.")
+            abiertos = servicio.listar_abiertos()
+        except LogisticaError as error:
+            consola.error(str(error))
             return
+        if not abiertos:
+            consola.aviso("No hay incidentes abiertos para cambiar de estado.")
+            return
+        elegido = _elegir_de_tabla(
+            abiertos,
+            ["ID", "TIPO", "SEVERIDAD", "ESTADO", "DESCRIPCION"],
+            lambda i: [
+                str(i.id)[-12:],
+                i.tipo.value,
+                i.severidad.value,
+                i.estado.value,
+                i.descripcion[:30],
+            ],
+            "Numero de incidente",
+        )
+        if elegido is None:
+            return
+        incidente_id = elegido.id
         destino = _elegir("Nuevo estado", EstadoIncidente)
         if destino is None:
             return
@@ -140,12 +225,10 @@ def construir(
 
     def listar_por_envio() -> None:
         consola.titulo("Incidentes de un envio")
-        texto = consola.pedir("ID del envio").strip()
-        try:
-            envio_id = UUID(texto)
-        except ValueError:
-            consola.error("El ID del envio no es valido.")
+        envio = _elegir_envio()
+        if envio is None:
             return
+        envio_id = envio.id
         try:
             incidentes = servicio.listar_por_envio(envio_id)
         except LogisticaError as error:

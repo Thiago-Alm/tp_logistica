@@ -229,7 +229,10 @@ def _secciones(contenedor: Contenedor, nivel: int, usuario: Usuario) -> list[Sec
             NIVEL_AUDITOR,
             "Incidentes",
             lambda: menu_incidentes.construir(
-                contenedor.incidentes_service, rol_nivel=nivel
+                contenedor.incidentes_service,
+                contenedor.envios,
+                contenedor.clientes,
+                rol_nivel=nivel,
             ),
         ),
         (

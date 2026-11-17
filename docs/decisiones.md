@@ -2727,3 +2727,39 @@ es delegar la autenticacion en el formulario.
 a aparecer una etiqueta "Usuario que ...", y verifica que `app.py` conserve el
 usuario. Mira el fuente en vez de ejecutarlo, por el mismo motivo que
 `test_menus_opcionales`: lo que hay que impedir es que la pregunta vuelva.
+
+---
+
+## D66 — Si el sistema puede listar lo que hay, que lo liste
+
+*Registrar un incidente* abria pidiendo `ID del envio` sobre una linea vacia.
+Nadie sabe un UUID de memoria: habia que ir a otra pantalla, copiarlo y volver.
+Lo mismo en *Incidentes de un envio* y en *Cambiar el estado de un incidente*.
+
+El resto de la aplicacion ya resolvia esto —facturacion, mensajeria y
+solicitudes eligen de una lista numerada—, asi que ademas era una
+inconsistencia: la misma accion se pedia de dos formas distintas segun el menu.
+
+Ahora los tres eligen de una tabla, con el dato suficiente para reconocer la
+fila sin conocer su id:
+
+    #  ID            CLIENTE                   ESTADO       PRIORIDAD  CREADO
+    1  000000000005  AgroGlobal Exportaciones  CREADO       BAJA       17/11/2026
+    2  000000000002  TecnoSur Componentes SRL  EN_TRANSITO  MEDIA      08/11/2026
+
+Tres decisiones dentro de esta:
+
+**Los envios se listan por estado.** `EnvioService` no tiene un `listar()`
+suelto, asi que se recorre `EstadoEnvio`. No es un rodeo: deja la tabla
+agrupada por estado, que es como uno busca un envio.
+
+**El contenedor se elige entre los del envio elegido**, no entre todos. Un
+incidente de un contenedor que no viaja en ese envio no tendria sentido, y
+antes nada lo impedia: se pedia el UUID suelto.
+
+**Se sigue aceptando el UUID o un fragmento.** El selector prueba primero el
+numero de fila y despues el texto contra los ids. Quien trae el id de una
+consulta a la base no pierde el atajo.
+
+La regla: **lo que el sistema puede mostrar, no se pide de memoria.** Un campo
+vacio que espera un UUID no es una pregunta, es un examen.
