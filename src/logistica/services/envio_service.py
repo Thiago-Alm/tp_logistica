@@ -9,7 +9,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from logistica.domain.contenedor import Contenedor, EstadoContenedor
+from logistica.domain.contenedor import (
+    Contenedor,
+    EstadoContenedor,
+    estado_segun_envio,
+)
 from logistica.domain.envio import Envio, EstadoEnvio, PrioridadEnvio
 from logistica.domain.tramo import MedioTransporte, Tramo
 from logistica.exceptions import ConflictoDeDatos, NoEncontrado, ValidacionError
@@ -102,12 +106,41 @@ class EnvioService:
                 raise NoEncontrado(f"No existe el envio {envio_id}")
             envio.pasar_a(nuevo, momento)
             uow.envios.actualizar(envio)
+            self._propagar_a_contenedores(uow, envio_id, nuevo)
             uow.outbox.guardar(
                 eventos.envio_cambio_de_estado(envio, datetime.now(timezone.utc))
             )
             uow.commit()
         log.info("Envio %s paso a %s", envio_id, nuevo.value)
         return envio
+
+    @staticmethod
+    def _propagar_a_contenedores(
+        uow: UnidadDeTrabajo, envio_id: UUID, nuevo: EstadoEnvio
+    ) -> None:
+        """Lleva el estado del envio a sus contenedores, en la MISMA
+        transaccion que el envio (D28).
+
+        Solo toca los que estan ocupados por este envio. Un contenedor en
+        EN_MANTENIMIENTO o en BAJA no puede estar viajando, asi que si aparece
+        uno es un dato inconsistente y no hay que pisarlo: eso lo reporta el
+        chequeo de consistencia, no lo arregla este metodo a escondidas.
+        """
+        estado_nuevo = estado_segun_envio(nuevo)
+        if estado_nuevo is None:
+            return
+        for contenedor_id in uow.envios.listar_contenedores(envio_id):
+            contenedor = uow.contenedores.obtener(contenedor_id)
+            if contenedor is None or not contenedor.estado.esta_ocupado():
+                continue
+            if contenedor.estado is estado_nuevo:
+                continue
+            contenedor.estado = estado_nuevo
+            uow.contenedores.actualizar(contenedor)
+            log.info(
+                "Contenedor %s paso a %s por el envio %s",
+                contenedor.codigo_iso, estado_nuevo.value, envio_id,
+            )
 
     def entregar(self, envio_id: UUID, momento: datetime | None = None) -> Envio:
         return self.cambiar_estado(

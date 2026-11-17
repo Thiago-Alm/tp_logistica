@@ -2457,3 +2457,66 @@ fue una decision y no un olvido.
 El modelo fisico declara ahora exactamente las colecciones que el sistema usa:
 `incidentes`, `alertas`, `conversaciones`, `mensajes` y `reportes` —mas
 `umbrales`, que tiene su propio script—.
+
+---
+
+## D59 — El estado del envio se propaga a sus contenedores
+
+El estado del contenedor se escribia en un solo momento —al asignarlo a un
+envio, pasando a `ASIGNADO`— y despues nadie lo volvia a tocar. Entregar el
+envio no liberaba nada.
+
+El resultado era un callejon sin salida:
+
+```
+DISPONIBLE --asignar--> ASIGNADO --el envio sale--> (no hay salida)
+                            |
+                            +--envio cancelado--> DISPONIBLE
+```
+
+`desasignar_contenedor` si liberaba, pero se niega a correr cuando el envio ya
+salio (*lo que viajo ya viajo*), y el ABM de contenedores rechaza los ocupados
+porque "esos los maneja `EnvioService`". **Cada uno delegaba en el otro y
+ninguno lo hacia**: un contenedor entregado quedaba inutilizable para siempre.
+
+Habia ademas un segundo sintoma del mismo hueco: nada escribia nunca
+`EN_TRANSITO`. El valor existia en el enum y solo aparecia porque los datos
+semilla lo cargaban a mano.
+
+La regla quedo en el dominio, en `contenedor.estado_segun_envio()`, y no en el
+servicio: *un contenedor esta ocupado mientras su envio este en curso y queda
+libre cuando el envio termina, haya llegado o se haya cancelado.*
+
+| Estado del envio | Estado del contenedor |
+| --- | --- |
+| `CREADO` | no se toca — de eso se ocupa `asignar_contenedor` |
+| `EN_TRANSITO` | `EN_TRANSITO` |
+| `EN_PUERTO` | `EN_TRANSITO` — el envio no termino, el contenedor sigue ocupado |
+| `ENTREGADO` | `DISPONIBLE` |
+| `CANCELADO` | `DISPONIBLE` |
+
+La propagacion va en la **misma transaccion** que el cambio del envio, por el
+mismo motivo que D28: si una de las dos escrituras fallara, el contenedor
+quedaria marcado segun un envio que no esta en ese estado.
+
+Solo se tocan los contenedores que estan ocupados. Uno en `EN_MANTENIMIENTO` o
+en `BAJA` no puede estar viajando: si aparece dentro de un envio en curso, el
+dato es inconsistente y lo tiene que reportar el chequeo de consistencia, no
+taparlo esta propagacion. Es el mismo guardian (`esta_ocupado()`) que ya usaba
+`desasignar_contenedor`, asi que las dos rutas aplican hoy la misma regla.
+
+## D60 — `preparar_demo.py --recargar` tiene que recargar de verdad
+
+`aplicar_esquema.py` no rehace la base si ya tiene tablas: avisa y **sale con
+codigo 0**. `preparar_demo.py --recargar` lo invocaba sin `--reiniciar`, leia
+ese 0 como exito e imprimia *"Listo. Las fechas de la semilla son relativas a
+hoy"*. No habia recargado nada.
+
+El efecto practico era el peor posible para una demo: los datos tocados a mano
+sobrevivian al comando que existe justamente para borrarlos, y quien lo corria
+creia tener la base limpia. Se encontro porque un test de la semilla
+(`test_envios_demorados`) seguia fallando despues de "recargar".
+
+Ahora se pasa `--reiniciar`. **Un comando que no puede hacer su trabajo tiene
+que fallar, no informar exito**; mientras tanto, el que lo llama le da la opcion
+que necesita para hacerlo.

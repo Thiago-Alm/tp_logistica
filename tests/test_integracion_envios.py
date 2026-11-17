@@ -156,6 +156,88 @@ def test_no_se_puede_asignar_un_contenedor_ocupado(contenedor, envio_temporal):
         contenedor.envios.asignar_contenedor(envio_temporal.id, CONTENEDOR_OCUPADO)
 
 
+# El estado del envio se propaga a sus contenedores. Antes no se propagaba: al
+# asignar quedaban ASIGNADO y nada los volvia a tocar, asi que entregar un
+# envio dejaba sus contenedores ocupados para siempre. El ABM no los podia
+# destrabar porque rechaza los ocupados ("los maneja EnvioService"), y
+# EnvioService no los liberaba: cada uno delegaba en el otro.
+
+
+def _estado_de(contenedor, contenedor_id):
+    return contenedor.contenedores_service.obtener(contenedor_id).estado
+
+
+def test_al_salir_el_envio_sus_contenedores_pasan_a_en_transito(
+    contenedor, envio_temporal
+):
+    contenedor.envios.asignar_contenedor(envio_temporal.id, CONTENEDOR_LIBRE)
+    assert _estado_de(contenedor, CONTENEDOR_LIBRE) is EstadoContenedor.ASIGNADO
+
+    contenedor.envios.cambiar_estado(envio_temporal.id, EstadoEnvio.EN_TRANSITO)
+    assert _estado_de(contenedor, CONTENEDOR_LIBRE) is EstadoContenedor.EN_TRANSITO
+
+
+def test_al_entregar_el_envio_sus_contenedores_vuelven_a_estar_disponibles(
+    contenedor, envio_temporal
+):
+    """Lo que estaba roto: el contenedor quedaba ocupado para siempre."""
+    contenedor.envios.asignar_contenedor(envio_temporal.id, CONTENEDOR_LIBRE)
+    contenedor.envios.cambiar_estado(envio_temporal.id, EstadoEnvio.EN_TRANSITO)
+    contenedor.envios.entregar(envio_temporal.id)
+
+    assert _estado_de(contenedor, CONTENEDOR_LIBRE) is EstadoContenedor.DISPONIBLE
+
+
+def test_un_contenedor_liberado_se_puede_volver_a_asignar(contenedor, envio_temporal):
+    """La consecuencia que importa: el contenedor vuelve a servir.
+
+    No alcanza con mirar el estado; lo que el negocio necesita es poder
+    reutilizarlo, y eso lo decide `puede_asignarse()` en el alta del envio
+    siguiente.
+    """
+    contenedor.envios.asignar_contenedor(envio_temporal.id, CONTENEDOR_LIBRE)
+    contenedor.envios.cambiar_estado(envio_temporal.id, EstadoEnvio.EN_TRANSITO)
+    contenedor.envios.entregar(envio_temporal.id)
+
+    otro = contenedor.envios.registrar(CLIENTE, ORIGEN, DESTINO, PrioridadEnvio.BAJA)
+    try:
+        asignado = contenedor.envios.asignar_contenedor(otro.id, CONTENEDOR_LIBRE)
+        assert asignado.estado is EstadoContenedor.ASIGNADO
+    finally:
+        with psycopg.connect(armar_dsn(contenedor.settings), autocommit=True) as cx:
+            cx.execute("delete from envio_contenedor where envio_id = %s", (otro.id,))
+            cx.execute("delete from envio where id = %s", (otro.id,))
+
+
+def test_cancelar_el_envio_tambien_libera_los_contenedores(contenedor, envio_temporal):
+    contenedor.envios.asignar_contenedor(envio_temporal.id, CONTENEDOR_LIBRE)
+    contenedor.envios.cambiar_estado(envio_temporal.id, EstadoEnvio.CANCELADO)
+
+    assert _estado_de(contenedor, CONTENEDOR_LIBRE) is EstadoContenedor.DISPONIBLE
+
+
+def test_un_contenedor_en_mantenimiento_no_lo_pisa_el_envio(
+    contenedor, envio_temporal
+):
+    """EN_MANTENIMIENTO y BAJA son decisiones administrativas.
+
+    Si un contenedor con uno de esos estados figura en un envio en curso, el
+    dato es inconsistente y lo reporta el chequeo de consistencia. Propagar el
+    estado del envio lo taparia.
+    """
+    contenedor.envios.asignar_contenedor(envio_temporal.id, CONTENEDOR_LIBRE)
+    contenedor.envios.cambiar_estado(envio_temporal.id, EstadoEnvio.EN_TRANSITO)
+    with psycopg.connect(armar_dsn(contenedor.settings), autocommit=True) as cx:
+        cx.execute(
+            "update contenedor set estado = 'EN_MANTENIMIENTO' where id = %s",
+            (CONTENEDOR_LIBRE,),
+        )
+
+    contenedor.envios.entregar(envio_temporal.id)
+
+    assert _estado_de(contenedor, CONTENEDOR_LIBRE) is EstadoContenedor.EN_MANTENIMIENTO
+
+
 # --- Reportes ---------------------------------------------------------------
 
 

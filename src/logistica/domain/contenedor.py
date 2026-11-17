@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import Enum
 from uuid import UUID
 
+from logistica.domain.envio import EstadoEnvio
 from logistica.exceptions import ValidacionError
 
 # Un codigo ISO 6346 son 4 letras (dueño + categoria) y 7 digitos.
@@ -46,3 +47,24 @@ class Contenedor:
             )
         if self.capacidad <= 0:
             raise ValidacionError(f"La capacidad debe ser positiva (recibido: {self.capacidad})")
+
+
+def estado_segun_envio(estado_envio: EstadoEnvio) -> EstadoContenedor | None:
+    """Que estado le corresponde a un contenedor segun el envio que lo lleva.
+
+    `None` significa "no corresponde tocarlo": CREADO es el estado en que el
+    contenedor se asigna, y de eso ya se ocupa `asignar_contenedor`.
+
+    La regla vive aca y no en el servicio porque es una regla del dominio: un
+    contenedor esta ocupado mientras su envio este en curso, y queda libre
+    cuando el envio termina, haya llegado o se haya cancelado. Antes no la
+    tenia nadie, y el contenedor se quedaba ocupado para siempre: el ABM
+    rechazaba los ocupados ("los maneja EnvioService") y EnvioService nunca los
+    liberaba. Cada uno delegaba en el otro.
+    """
+    return {
+        EstadoEnvio.EN_TRANSITO: EstadoContenedor.EN_TRANSITO,
+        EstadoEnvio.EN_PUERTO: EstadoContenedor.EN_TRANSITO,
+        EstadoEnvio.ENTREGADO: EstadoContenedor.DISPONIBLE,
+        EstadoEnvio.CANCELADO: EstadoContenedor.DISPONIBLE,
+    }.get(estado_envio)

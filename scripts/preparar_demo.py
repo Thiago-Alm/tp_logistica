@@ -161,8 +161,12 @@ def lecturas_recientes() -> int:
 
 
 def recargar_datos() -> bool:
-    print("    Aplicando esquema y datos semilla...")
-    resultado = ejecutar([sys.executable, "scripts/aplicar_esquema.py"])
+    print("    Borrando y recargando el esquema y los datos semilla...")
+    # --reiniciar es obligatorio: sin esa opcion, aplicar_esquema.py ve que la
+    # base ya tiene tablas, avisa y sale con codigo 0. O sea: parecia haber
+    # recargado y no habia tocado nada, asi que los datos modificados a mano
+    # durante una demo sobrevivian a un --recargar.
+    resultado = ejecutar([sys.executable, "scripts/aplicar_esquema.py", "--reiniciar"])
     if resultado.returncode != 0:
         for linea in (resultado.stderr or resultado.stdout or "").strip().splitlines()[-5:]:
             print(f"    {linea}")
