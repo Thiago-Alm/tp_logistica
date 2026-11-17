@@ -218,3 +218,42 @@ def test_cliente_y_operador_si_tienen_limite():
         cuenta = nueva_cuenta(titular_tipo=tipo, limite_credito=Decimal("1000"))
         assert cuenta.tiene_limite()
         assert cuenta.supera_el_limite(Decimal("1001"))
+
+
+# Al cliente y al operador les vendemos: nos deben (cuenta por cobrar). Al
+# proveedor le compramos: le debemos (cuenta por pagar). Un proveedor nunca
+# tiene deuda con nosotros, por grande que sea su saldo en rojo.
+
+
+def test_un_proveedor_nunca_nos_debe():
+    cuenta = nueva_cuenta(titular_tipo=TitularTipo.PROVEEDOR)
+    cuenta.aplicar(movimiento(TipoMovimiento.DEBITO, "40000000"))
+
+    assert cuenta.es_por_pagar()
+    assert cuenta.saldo == Decimal("-40000000")
+    assert cuenta.deuda == CERO           # no nos debe nada
+    assert cuenta.a_pagar == Decimal("40000000")  # se lo debemos nosotros
+
+
+def test_a_un_cliente_no_le_debemos_nada():
+    cuenta = nueva_cuenta(titular_tipo=TitularTipo.CLIENTE)
+    cuenta.aplicar(movimiento(TipoMovimiento.DEBITO, "500"))
+
+    assert not cuenta.es_por_pagar()
+    assert cuenta.deuda == Decimal("500")
+    assert cuenta.a_pagar == CERO
+
+
+def test_las_dos_lecturas_son_excluyentes():
+    """Nunca pueden ser las dos distintas de cero en la misma cuenta."""
+    for tipo in TitularTipo:
+        cuenta = nueva_cuenta(titular_tipo=tipo)
+        cuenta.aplicar(movimiento(TipoMovimiento.DEBITO, "100"))
+        assert CERO in (cuenta.deuda, cuenta.a_pagar)
+
+
+def test_una_cuenta_por_pagar_no_lleva_limite():
+    """Es el mismo motivo: no hay nada que acotar si no nos deben."""
+    cuenta = nueva_cuenta(titular_tipo=TitularTipo.PROVEEDOR)
+    assert cuenta.es_por_pagar()
+    assert not cuenta.tiene_limite()

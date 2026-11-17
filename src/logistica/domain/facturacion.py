@@ -177,18 +177,45 @@ class CuentaCorriente:
 
     @property
     def deuda(self) -> Decimal:
-        """Lo que el titular debe, en positivo. Cero si esta al dia o a favor."""
+        """Lo que el titular NOS debe, en positivo. Cero si esta al dia.
+
+        Un proveedor nunca nos debe: su cuenta es por pagar, asi que su deuda
+        es siempre cero. Lo que su saldo en rojo representa es lo que le
+        debemos nosotros, y eso se lee con `a_pagar`.
+        """
+        if self.es_por_pagar():
+            return CERO
         return -self.saldo if self.saldo < CERO else CERO
 
-    def tiene_limite(self) -> bool:
-        """El proveedor no tiene tope de credito.
+    @property
+    def a_pagar(self) -> Decimal:
+        """Lo que LE debemos al titular, en positivo. Cero si no le debemos.
 
-        El limite existe para cubrirnos de quien nos debe. Al proveedor le
-        compramos: la deuda corre a nuestro favor, asi que ponerle un tope
-        seria frenar nuestras propias compras. Clientes y operadores si lo
-        tienen.
+        El espejo de `deuda`. Solo tiene valor en una cuenta por pagar: a un
+        cliente no le debemos, le cobramos.
         """
-        return self.titular_tipo is not TitularTipo.PROVEEDOR
+        if not self.es_por_pagar():
+            return CERO
+        return -self.saldo if self.saldo < CERO else CERO
+
+    def es_por_pagar(self) -> bool:
+        """Si la cuenta es por PAGAR en vez de por COBRAR.
+
+        Es la distincion de negocio que ordena todo lo demas: al cliente y al
+        operador les vendemos, asi que **nos deben** y su cuenta es por cobrar.
+        Al proveedor le compramos, asi que **le debemos**, y su cuenta es por
+        pagar.
+        """
+        return self.titular_tipo is TitularTipo.PROVEEDOR
+
+    def tiene_limite(self) -> bool:
+        """Solo las cuentas por cobrar llevan tope.
+
+        El limite de credito existe para acotar cuanto nos pueden deber. En una
+        cuenta por pagar no hay nada que acotar: ponerle un tope al proveedor
+        seria frenar nuestras propias compras.
+        """
+        return not self.es_por_pagar()
 
     def credito_disponible(self) -> Decimal:
         return self.limite_credito - self.deuda

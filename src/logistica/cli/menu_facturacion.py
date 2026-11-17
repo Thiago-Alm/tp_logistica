@@ -108,16 +108,24 @@ def construir(
 
     def listar_cuentas() -> None:
         consola.titulo("Cuentas corrientes")
-        consola.aviso("El saldo es negativo cuando el titular debe.")
+        consola.aviso(
+            "Cliente y operador son cuentas por COBRAR: el saldo en rojo es lo "
+            "que nos deben."
+        )
+        consola.aviso(
+            "Proveedor es cuenta por PAGAR: el saldo en rojo es lo que le "
+            "debemos nosotros."
+        )
         nombres = _nombres()
         consola.tabla(
-            ["TIPO", "TITULAR", "SALDO", "DEUDA", "LIMITE", "DISPONIBLE"],
+            ["TIPO", "TITULAR", "SALDO", "NOS DEBE", "LE DEBEMOS", "LIMITE", "DISPONIBLE"],
             [
                 [
                     c.titular_tipo.value,
                     nombres.get(c.titular_id, str(c.titular_id)[:8]),
                     f"{c.saldo:.2f}",
-                    f"{c.deuda:.2f}",
+                    "-" if c.es_por_pagar() else f"{c.deuda:.2f}",
+                    f"{c.a_pagar:.2f}" if c.es_por_pagar() else "-",
                     f"{c.limite_credito:.2f}" if c.tiene_limite() else "SIN LIMITE",
                     f"{c.credito_disponible():.2f}" if c.tiene_limite() else "-",
                 ]
@@ -135,15 +143,18 @@ def construir(
         except LogisticaError as e:
             consola.error(str(e))
             return
-        disponible = (
-            f"{estado.cuenta.credito_disponible():.2f}"
-            if estado.cuenta.tiene_limite()
-            else "sin limite"
-        )
-        consola.aviso(
-            f"Saldo {estado.cuenta.saldo:.2f}  deuda {estado.cuenta.deuda:.2f}  "
-            f"disponible {disponible}"
-        )
+        cuenta = estado.cuenta
+        if cuenta.es_por_pagar():
+            consola.aviso(
+                f"Cuenta por PAGAR. Saldo {cuenta.saldo:.2f}  "
+                f"le debemos {cuenta.a_pagar:.2f}  sin limite de credito"
+            )
+        else:
+            consola.aviso(
+                f"Cuenta por COBRAR. Saldo {cuenta.saldo:.2f}  "
+                f"nos debe {cuenta.deuda:.2f}  "
+                f"disponible {cuenta.credito_disponible():.2f}"
+            )
         consola.tabla(
             ["FECHA", "TIPO", "MONTO", "DESCRIPCION"],
             [

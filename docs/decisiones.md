@@ -2562,3 +2562,39 @@ pedir cualquier dato.
 **Un menu no deberia ofrecer lo que no se puede hacer.** La validacion del
 servicio se queda igual —es la que garantiza la regla—, pero deja de ser la
 primera noticia que recibe el usuario.
+
+---
+
+## D62 — Cuentas por cobrar y cuentas por pagar: el proveedor nunca nos debe
+
+D61 dejo al proveedor sin limite de credito, pero con eso solo la pantalla
+seguia mintiendo: un proveedor con saldo en rojo figuraba con **deuda**, como
+si nos debiera plata.
+
+Leido como negocio, esta al reves. Al cliente y al operador les **vendemos**:
+nos deben, y su cuenta es **por cobrar**. Al proveedor le **compramos**: le
+debemos, y su cuenta es **por pagar**. El saldo negativo significa cosas
+opuestas segun de quien sea la cuenta.
+
+La distincion quedo explicita en el dominio, en `CuentaCorriente.es_por_pagar()`,
+y de ahi salen tres cosas que antes estaban sueltas o mal:
+
+| | Cuenta por cobrar | Cuenta por pagar |
+| --- | --- | --- |
+| Quien debe | el titular | nosotros |
+| `deuda` | lo que nos debe | **siempre cero** |
+| `a_pagar` | siempre cero | lo que le debemos |
+| `tiene_limite()` | si | no |
+
+`deuda` y `a_pagar` son **excluyentes**: ninguna cuenta puede tener las dos
+distintas de cero, y hay un test que lo verifica sobre los tres tipos.
+
+El limite de credito dejo de ser una regla aparte: `tiene_limite()` es ahora
+`not es_por_pagar()`. **Es el mismo motivo**, no dos. El tope existe para acotar
+cuanto nos pueden deber, y en una cuenta por pagar no hay nada que acotar.
+
+El signo guardado no cambia: el saldo sigue siendo negativo cuando la cuenta
+esta en rojo, para los dos casos. Lo que cambia es como se lee, y leerlo es
+tarea del dominio, no de la pantalla. Por eso la columna "DEUDA" se partio en
+"NOS DEBE" y "LE DEBEMOS", con un guion donde no aplica: una cifra sin aclarar
+de que lado esta no es informacion, es una trampa.
