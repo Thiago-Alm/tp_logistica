@@ -2520,3 +2520,45 @@ creia tener la base limpia. Se encontro porque un test de la semilla
 Ahora se pasa `--reiniciar`. **Un comando que no puede hacer su trabajo tiene
 que fallar, no informar exito**; mientras tanto, el que lo llama le da la opcion
 que necesita para hacerlo.
+
+---
+
+## D61 — El proveedor no lleva limite de credito, y el menu solo ofrece lo que se puede hacer
+
+Dos problemas del mismo modulo, que apareceron usando la aplicacion.
+
+### El limite no aplica a todos los titulares
+
+`CuentaCorriente` trataba a los tres tipos igual. Pero el limite de credito
+existe para **cubrirnos de quien nos debe**: al cliente y al operador les
+vendemos, y conviene un tope. Al proveedor le **compramos**, asi que ponerle un
+tope seria frenar nuestras propias compras.
+
+La regla quedo en el dominio, en `CuentaCorriente.tiene_limite()`, y
+`supera_el_limite()` devuelve `False` cuando no hay tope. El menu muestra
+`SIN LIMITE` en vez de un numero que no significa nada, y al abrir la cuenta de
+un proveedor ni siquiera lo pregunta.
+
+La columna `limite_credito` sigue siendo `NOT NULL`: el proveedor guarda `0.00`
+y el dominio dice que ese valor no se le aplica. Se prefirio eso a hacerla
+nullable, porque un `NULL` obligaria a distinguir "sin limite" de "sin cargar"
+en cada consulta.
+
+### El selector ofrecia titulares con los que la operacion no podia terminar
+
+`_elegir_titular()` listaba a los tres tipos completos, sin mirar el contexto.
+El resultado eran dos sintomas que parecian distintos y eran el mismo agujero:
+
+- *Emitir factura* ofrecia proveedores sin cuenta corriente, y el error
+  —"no tiene cuenta corriente"— llegaba recien del servicio, despues de haber
+  cargado el importe y el concepto.
+- *Abrir cuenta corriente* ofrecia titulares que **ya** tenian una, y fallaba
+  con "ya tiene cuenta".
+
+Ahora `_elegir_titular(con_cuenta=...)` recorta la lista: `True` para facturar,
+cobrar y consultar; `False` para abrir. Si no queda ninguno, lo dice antes de
+pedir cualquier dato.
+
+**Un menu no deberia ofrecer lo que no se puede hacer.** La validacion del
+servicio se queda igual —es la que garantiza la regla—, pero deja de ser la
+primera noticia que recibe el usuario.

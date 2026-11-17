@@ -180,11 +180,27 @@ class CuentaCorriente:
         """Lo que el titular debe, en positivo. Cero si esta al dia o a favor."""
         return -self.saldo if self.saldo < CERO else CERO
 
+    def tiene_limite(self) -> bool:
+        """El proveedor no tiene tope de credito.
+
+        El limite existe para cubrirnos de quien nos debe. Al proveedor le
+        compramos: la deuda corre a nuestro favor, asi que ponerle un tope
+        seria frenar nuestras propias compras. Clientes y operadores si lo
+        tienen.
+        """
+        return self.titular_tipo is not TitularTipo.PROVEEDOR
+
     def credito_disponible(self) -> Decimal:
         return self.limite_credito - self.deuda
 
     def supera_el_limite(self, importe: Decimal) -> bool:
-        """Si facturar `importe` dejaria al titular por encima de su limite."""
+        """Si facturar `importe` dejaria al titular por encima de su limite.
+
+        Sin limite nunca se supera: el proveedor puede facturar lo que haga
+        falta.
+        """
+        if not self.tiene_limite():
+            return False
         return self.deuda + importe > self.limite_credito
 
 

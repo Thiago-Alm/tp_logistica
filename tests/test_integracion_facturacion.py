@@ -25,6 +25,9 @@ from logistica.infrastructure.postgres.conexion import armar_dsn
 
 CLIENTE = UUID("20000000-0000-0000-0000-000000000001")
 PROVEEDOR = UUID("40000000-0000-0000-0000-000000000002")
+# TransContinental: no tiene cuenta en la semilla, y por ser OPERADOR si
+# lleva limite de credito (el proveedor no, D61).
+OPERADOR = UUID("30000000-0000-0000-0000-000000000002")
 ORIGEN = UUID("50000000-0000-0000-0000-000000000001")
 DESTINO = UUID("50000000-0000-0000-0000-000000000004")
 VEHICULO = UUID("60000000-0000-0000-0000-000000000001")
@@ -70,6 +73,20 @@ def cuenta_temporal(contenedor):
     _limpiar(contenedor, cuentas=[cuenta.id])
 
 
+@pytest.fixture
+def cuenta_con_limite(contenedor):
+    """Una cuenta de OPERADOR, que si tiene tope de credito.
+
+    Hace falta aparte porque el proveedor dejo de tenerlo (D61): para probar
+    que una emision rechazada no deja rastro hay que poder rechazarla.
+    """
+    cuenta = contenedor.facturacion.abrir_cuenta(
+        TitularTipo.OPERADOR, OPERADOR, Decimal("20000")
+    )
+    yield cuenta
+    _limpiar(contenedor, cuentas=[cuenta.id])
+
+
 # --- La propiedad central ---------------------------------------------------
 
 
@@ -86,16 +103,20 @@ def test_emitir_mueve_factura_movimiento_y_saldo_juntos(contenedor, cuenta_tempo
     assert estado.saldo_coincide
 
 
-def test_si_la_emision_falla_no_queda_nada(contenedor, cuenta_temporal):
+def test_si_la_emision_falla_no_queda_nada(contenedor, cuenta_con_limite):
     """Facturar por encima del limite corta antes del commit: no debe quedar ni
-    la factura, ni el movimiento, ni el saldo cambiado."""
+    la factura, ni el movimiento, ni el saldo cambiado.
+
+    Va contra un OPERADOR y no contra un proveedor porque el proveedor no tiene
+    tope (D61), y sin tope no hay emision que rechazar.
+    """
     servicio = contenedor.facturacion
-    antes = servicio.estado_de_cuenta(TitularTipo.PROVEEDOR, PROVEEDOR)
+    antes = servicio.estado_de_cuenta(TitularTipo.OPERADOR, OPERADOR)
 
     with pytest.raises(ConflictoDeDatos):
-        servicio.emitir(TitularTipo.PROVEEDOR, PROVEEDOR, Decimal("999999"), "Exceso")
+        servicio.emitir(TitularTipo.OPERADOR, OPERADOR, Decimal("999999"), "Exceso")
 
-    despues = servicio.estado_de_cuenta(TitularTipo.PROVEEDOR, PROVEEDOR)
+    despues = servicio.estado_de_cuenta(TitularTipo.OPERADOR, OPERADOR)
     assert despues.cuenta.saldo == antes.cuenta.saldo
     assert len(despues.movimientos) == len(antes.movimientos)
 

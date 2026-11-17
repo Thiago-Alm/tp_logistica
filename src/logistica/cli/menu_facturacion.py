@@ -52,12 +52,23 @@ def construir(
                 nombres[parte.id] = parte.razon_social
         return nombres
 
-    def _elegir_titular() -> tuple[TitularTipo, UUID] | None:
+    def _titulares_con_cuenta() -> set:
+        """Los (tipo, id) que hoy tienen cuenta corriente abierta."""
+        return {(c.titular_tipo, c.titular_id) for c in servicio.listar_cuentas()}
+
+    def _elegir_titular(con_cuenta: bool | None = None) -> tuple[TitularTipo, UUID] | None:
         """Los tres tipos se eligen de una lista por razon social.
 
-        Antes solo el cliente: operadores y proveedores pedian el UUID a mano
-        porque no tenian su propio ABM. Ahora lo tienen, asi que facturarle a un
-        operador es tan directo como facturarle a un cliente.
+        `con_cuenta` recorta la lista segun para que se la pida:
+
+        - `True`  -> solo los que ya tienen cuenta (facturar, cobrar, consultar)
+        - `False` -> solo los que no la tienen (abrir cuenta)
+        - `None`  -> todos
+
+        Sin ese recorte el menu ofrecia titulares con los que la operacion no
+        podia terminar: aparecia un proveedor sin cuenta para facturarle, o uno
+        que ya la tenia para abrirsela. El error llegaba recien al final, del
+        servicio. Es mejor no ofrecer lo que no se puede hacer.
         """
         tipo = _elegir(list(TitularTipo), lambda t: t.value, "Tipo de titular")
         if tipo is None:
@@ -70,6 +81,28 @@ def construir(
         if not partes:
             consola.error(f"No hay {tipo.value.lower()}es cargados.")
             return None
+
+        if con_cuenta is not None:
+            try:
+                con_cuenta_hoy = _titulares_con_cuenta()
+            except LogisticaError as error:
+                consola.error(str(error))
+                return None
+            partes = [
+                x for x in partes if ((tipo, x.id) in con_cuenta_hoy) is con_cuenta
+            ]
+            if not partes:
+                consola.aviso(
+                    f"No hay {tipo.value.lower()}es "
+                    + ("con" if con_cuenta else "sin")
+                    + " cuenta corriente."
+                )
+                if not con_cuenta:
+                    consola.aviso("Todos los de ese tipo ya tienen una.")
+                else:
+                    consola.aviso("Primero hay que abrirsela (opcion 3).")
+                return None
+
         parte = _elegir(partes, lambda x: x.razon_social, tipo.value.capitalize())
         return (tipo, parte.id) if parte else None
 
@@ -85,8 +118,8 @@ def construir(
                     nombres.get(c.titular_id, str(c.titular_id)[:8]),
                     f"{c.saldo:.2f}",
                     f"{c.deuda:.2f}",
-                    f"{c.limite_credito:.2f}",
-                    f"{c.credito_disponible():.2f}",
+                    f"{c.limite_credito:.2f}" if c.tiene_limite() else "SIN LIMITE",
+                    f"{c.credito_disponible():.2f}" if c.tiene_limite() else "-",
                 ]
                 for c in servicio.listar_cuentas()
             ],
@@ -94,7 +127,7 @@ def construir(
 
     def estado_de_cuenta() -> None:
         consola.titulo("Estado de cuenta")
-        titular = _elegir_titular()
+        titular = _elegir_titular(con_cuenta=True)
         if titular is None:
             return
         try:
@@ -102,9 +135,14 @@ def construir(
         except LogisticaError as e:
             consola.error(str(e))
             return
+        disponible = (
+            f"{estado.cuenta.credito_disponible():.2f}"
+            if estado.cuenta.tiene_limite()
+            else "sin limite"
+        )
         consola.aviso(
             f"Saldo {estado.cuenta.saldo:.2f}  deuda {estado.cuenta.deuda:.2f}  "
-            f"disponible {estado.cuenta.credito_disponible():.2f}"
+            f"disponible {disponible}"
         )
         consola.tabla(
             ["FECHA", "TIPO", "MONTO", "DESCRIPCION"],
@@ -123,12 +161,17 @@ def construir(
 
     def abrir_cuenta() -> None:
         consola.titulo("Abrir cuenta corriente")
-        titular = _elegir_titular()
+        titular = _elegir_titular(con_cuenta=False)
         if titular is None:
             return
-        limite = _pedir_decimal("Limite de credito")
-        if limite is None:
-            return
+        if titular[0] is TitularTipo.PROVEEDOR:
+            # No se le pide un limite que no se le va a aplicar.
+            consola.aviso("El proveedor no lleva limite de credito: se abre sin tope.")
+            limite = Decimal("0")
+        else:
+            limite = _pedir_decimal("Limite de credito")
+            if limite is None:
+                return
         try:
             cuenta = servicio.abrir_cuenta(*titular, limite)
         except LogisticaError as e:
@@ -138,7 +181,7 @@ def construir(
 
     def emitir() -> None:
         consola.titulo("Emitir factura")
-        titular = _elegir_titular()
+        titular = _elegir_titular(con_cuenta=True)
         if titular is None:
             return
         importe = _pedir_decimal("Importe")
@@ -153,7 +196,7 @@ def construir(
 
     def listar_facturas() -> None:
         consola.titulo("Facturas de un titular")
-        titular = _elegir_titular()
+        titular = _elegir_titular(con_cuenta=True)
         if titular is None:
             return
         consola.tabla(
@@ -172,7 +215,7 @@ def construir(
 
     def registrar_pago() -> None:
         consola.titulo("Registrar pago")
-        titular = _elegir_titular()
+        titular = _elegir_titular(con_cuenta=True)
         if titular is None:
             return
         pendientes = [f for f in servicio.listar_facturas(*titular) if f.esta_pendiente()]

@@ -196,3 +196,25 @@ def test_todos_los_valores_van_en_mayusculas():
     for enum in (TitularTipo, EstadoFactura, MedioPago, TipoMovimiento):
         for valor in enum:
             assert valor.value == valor.name == valor.value.upper()
+
+
+# El proveedor no lleva tope de credito: el limite existe para cubrirnos de
+# quien nos debe, y al proveedor le compramos.
+
+
+def test_el_proveedor_no_tiene_limite_de_credito():
+    cuenta = nueva_cuenta(
+        titular_tipo=TitularTipo.PROVEEDOR, limite_credito=Decimal("1000")
+    )
+    cuenta.aplicar(movimiento(TipoMovimiento.DEBITO, "999999"))
+
+    assert not cuenta.tiene_limite()
+    # Por grande que sea el importe, nunca lo frena.
+    assert not cuenta.supera_el_limite(Decimal("999999999"))
+
+
+def test_cliente_y_operador_si_tienen_limite():
+    for tipo in (TitularTipo.CLIENTE, TitularTipo.OPERADOR):
+        cuenta = nueva_cuenta(titular_tipo=tipo, limite_credito=Decimal("1000"))
+        assert cuenta.tiene_limite()
+        assert cuenta.supera_el_limite(Decimal("1001"))
