@@ -245,7 +245,8 @@ class EnvioService:
             if envio.estado not in (EstadoEnvio.CREADO, EstadoEnvio.CANCELADO):
                 raise ConflictoDeDatos(
                     f"No se puede sacar un contenedor de un envio "
-                    f"{envio.estado.value}"
+                    f"{envio.estado.value}: lo que viajo ya viajo, y sacarlo "
+                    f"falsearia el historico"
                 )
             contenedor = uow.contenedores.obtener(contenedor_id)
             if contenedor is None:

@@ -228,10 +228,8 @@ def construir(
 
     def sacar_contenedor() -> None:
         consola.titulo("Sacar un contenedor del envio")
-        consola.aviso(
-            "Solo mientras el envio no salio: una vez EN_TRANSITO lo que viajo "
-            "ya viajo, y sacarlo falsearia el historico."
-        )
+        # Sin aviso previo: el motivo viaja en el error del servicio, que solo
+        # aparece cuando el envio realmente ya salio (D63).
         envio = _buscar_envio(servicio, clientes)
         if envio is None:
             return

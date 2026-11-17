@@ -222,10 +222,10 @@ def construir(
 
     def cancelar() -> None:
         consola.titulo("Cancelar una solicitud")
-        consola.aviso(
-            "Una solicitud ya facturada no se cancela: hay un movimiento en la "
-            "cuenta corriente, y revertirlo es otro asiento (D41)."
-        )
+        # El aviso de que una solicitud facturada no se cancela se mostraba
+        # siempre, antes de saber cual era: cuando la cancelacion funcionaba
+        # quedaba arriba del [OK], y parecia un error. La regla la explica el
+        # dominio al rechazarla, que es cuando corresponde (D63).
         solicitud = _buscar()
         if solicitud is None:
             return

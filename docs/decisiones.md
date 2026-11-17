@@ -2598,3 +2598,38 @@ esta en rojo, para los dos casos. Lo que cambia es como se lee, y leerlo es
 tarea del dominio, no de la pantalla. Por eso la columna "DEUDA" se partio en
 "NOS DEBE" y "LE DEBEMOS", con un guion donde no aplica: una cifra sin aclarar
 de que lado esta no es informacion, es una trampa.
+
+---
+
+## D63 — Un aviso que anticipa un error no va antes de la operacion
+
+*Cancelar una solicitud* abria con este aviso, siempre, antes de saber de que
+solicitud se trataba:
+
+> Una solicitud ya facturada no se cancela: hay un movimiento en la cuenta
+> corriente, y revertirlo es otro asiento (D41).
+
+Cuando la cancelacion funcionaba, ese texto quedaba justo arriba del `[OK]`.
+Lo reporto un companero del equipo leyendolo como lo lee cualquiera: **parecia
+un error, y la operacion habia salido bien**.
+
+El aviso sobraba, porque la regla ya se explica sola donde corresponde:
+`pasar_a()` rechaza la transicion con *"Una solicitud FACTURADA no puede pasar
+a CANCELADA"*, y eso aparece unicamente cuando el caso ocurre.
+
+El mismo patron estaba en *Sacar un contenedor del envio*. Ahi el aviso llevaba
+el **motivo** —"lo que viajo ya viajo, y sacarlo falsearia el historico"—, que
+el error del servicio no tenia. Asi que el motivo se mudo al error y el aviso
+se fue: la explicacion no se perdio, cambio de momento.
+
+La regla que queda:
+
+| Tipo de aviso | Cuando |
+| --- | --- |
+| **Que va a pasar** ("la baja es logica, la fila queda") | antes; es informacion que el usuario necesita para decidir |
+| **Que no se puede tocar aca** ("el codigo ISO no se modifica") | antes; acota el alcance de lo que esta por hacer |
+| **Que podria fallar** ("una solicitud facturada no se cancela") | **nunca antes**: va en el error, si llega a ocurrir |
+
+Los dos primeros describen la operacion que el usuario esta por hacer. El
+tercero describe una operacion distinta, que quiza ni sea la suya. Mostrarlo
+igual no previene nada y le resta credibilidad a los mensajes que si importan.
